@@ -139,3 +139,9 @@ Berkas APK hasil kompilasi akan berada pada direktori:
 - **Keamanan Jaringan**: Aplikasi mendukung `CleartextTraffic` untuk kompatibilitas stream lokal berbasis HTTP, namun disarankan menggunakan protokol HTTPS untuk keamanan transmisi data.
 - **Lisensi Konten**: Aplikasi ini berfungsi murni sebagai pemutar media (*media player*). Pengguna bertanggung jawab penuh atas URL stream, berkas playlist, dan hak cipta konten yang dimasukkan ke dalam aplikasi.
 
+---
+
+## Lisensi
+
+Proyek ini didistribusikan di bawah lisensi **GNU General Public License v3.0 (GPL-3.0)** sejalan dengan ketergantungan ekstensi audio dekoder FFmpeg (`nextlib-media3ext`). Lihat berkas [LICENSE](LICENSE) untuk ketentuan lisensi lengkap.
+
