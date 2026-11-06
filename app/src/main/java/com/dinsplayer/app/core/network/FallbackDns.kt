@@ -41,9 +41,22 @@ object FallbackDns : Dns {
         "::1"
     )
 
-    // Client terisolasi untuk memanggil DoH tanpa rekursi DNS
+    // Client terisolasi untuk memanggil DoH tanpa rekursi DNS dan bebas dari blokir DNS sistem
     private val dohClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    return when (hostname) {
+                        "1.1.1.1" -> listOf(InetAddress.getByAddress("1.1.1.1", byteArrayOf(1, 1, 1, 1)))
+                        "1.0.0.1" -> listOf(InetAddress.getByAddress("1.0.0.1", byteArrayOf(1, 0, 0, 1)))
+                        "8.8.8.8" -> listOf(InetAddress.getByAddress("8.8.8.8", byteArrayOf(8, 8, 8, 8.toByte())))
+                        "8.8.4.4" -> listOf(InetAddress.getByAddress("8.8.4.4", byteArrayOf(8, 8, 4, 4)))
+                        "cloudflare-dns.com" -> listOf(InetAddress.getByAddress("cloudflare-dns.com", byteArrayOf(1, 1, 1, 1)))
+                        "dns.google" -> listOf(InetAddress.getByAddress("dns.google", byteArrayOf(8, 8, 8, 8.toByte())))
+                        else -> Dns.SYSTEM.lookup(hostname)
+                    }
+                }
+            })
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(6, TimeUnit.SECONDS)
             .followRedirects(true)

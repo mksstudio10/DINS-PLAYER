@@ -81,6 +81,20 @@ object Media3Manager {
     private var baseRetryPolicy: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy? = null
     private var appContext: android.content.Context? = null
 
+    private val apiResolveClient: okhttp3.OkHttpClient by lazy {
+        FallbackDns.configure(
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(false)
+                .followSslRedirects(false)
+        ).build()
+    }
+
+    private val playExecutor: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newFixedThreadPool(3) { r ->
+        Thread(r, "Media3PlayWorker").apply { isDaemon = true }
+    }
+
     /** Inserted into the audio pipeline by [AudioThroughFfmpegRenderersFactory]. */
     private val audioOffsetProcessor = AudioOffsetProcessor()
 
@@ -383,7 +397,7 @@ object Media3Manager {
                                     "Format file tidak dikenali. File mungkin rusak atau tidak didukung."
                                 } else if (cause.contains("SSLHandshakeException", ignoreCase = true) ||
                                            cause.contains("SSL", ignoreCase = true) ||
-                                           cause.contains("TLS", ignoreCase = false)) {
+                                           cause.contains("TLS", ignoreCase = true)) {
                                     "Gagal koneksi SSL/TLS. Server mungkin tidak mendukung protokol keamanan perangkat ini."
                                 } else {
                                     "Kesalahan: $cause"
@@ -418,76 +432,66 @@ object Media3Manager {
         android.util.Log.i("Media3Manager", "API direct URL detected, resolving: $url")
 
         return try {
-            val client = FallbackDns.configure(
-                okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(false)
-                    .followSslRedirects(false)
-            ).build()
-
             val reqBuilder = okhttp3.Request.Builder()
                 .url(url)
                 .header("User-Agent", userAgent.ifBlank { "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36" })
             headers["Origin"]?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("Origin", it) }
             headers["Referer"]?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("Referer", it) }
 
-            val response = client.newCall(reqBuilder.build()).execute()
-            val code = response.code
-            val location = response.header("Location")
+            apiResolveClient.newCall(reqBuilder.build()).execute().use { response ->
+                val code = response.code
+                val location = response.header("Location")
 
-            android.util.Log.i("Media3Manager", "API response code=$code location=$location")
+                android.util.Log.i("Media3Manager", "API response code=$code location=$location")
 
-            if (code in 300..399 && location != null) {
-                // 302 redirect — Location header is the CDN URL. Use it directly.
-                val resolvedUrl = if (location.startsWith("http")) {
-                    location
-                } else {
-                    // Relative redirect
-                    val base = android.net.Uri.parse(url)
-                    base.buildUpon().path(location).build().toString()
-                }
-                response.body?.close()
-                android.util.Log.i("Media3Manager", "Resolved via redirect: $resolvedUrl")
-                Triple(resolvedUrl, null, null)
-            } else if (code in 200..299) {
-                // Server returned a body (JSON) instead of redirect
-                val bodyStr = try { response.body?.string() ?: "" } catch (e: Exception) { "" }
-                response.body?.close()
-
-                android.util.Log.d("Media3Manager", "API body (first 300 chars): ${bodyStr.take(300)}")
-
-                var found: String? = null
-                try {
-                    val j = org.json.JSONObject(bodyStr)
-                    for (k in listOf("url", "file", "source", "src", "playback_url")) {
-                        val v = j.optString(k, "")
-                        if (v.startsWith("http")) { found = v; break }
+                if (code in 300..399 && location != null) {
+                    // 302 redirect — Location header is the CDN URL. Use it directly.
+                    val resolvedUrl = if (location.startsWith("http")) {
+                        location
+                    } else {
+                        // Relative redirect
+                        val base = android.net.Uri.parse(url)
+                        base.buildUpon().path(location).build().toString()
                     }
-                    if (found == null) {
-                        val d = j.optJSONObject("data")
-                        if (d != null) for (k in listOf("url", "file", "source", "src")) {
-                            val v = d.optString(k, "")
+                    android.util.Log.i("Media3Manager", "Resolved via redirect: $resolvedUrl")
+                    Triple(resolvedUrl, null, null)
+                } else if (code in 200..299) {
+                    // Server returned a body (JSON) instead of redirect
+                    val bodyStr = try { response.body?.string() ?: "" } catch (e: Exception) { "" }
+
+                    android.util.Log.d("Media3Manager", "API body (first 300 chars): ${bodyStr.take(300)}")
+
+                    var found: String? = null
+                    try {
+                        val j = org.json.JSONObject(bodyStr)
+                        for (k in listOf("url", "file", "source", "src", "playback_url")) {
+                            val v = j.optString(k, "")
                             if (v.startsWith("http")) { found = v; break }
                         }
+                        if (found == null) {
+                            val d = j.optJSONObject("data")
+                            if (d != null) for (k in listOf("url", "file", "source", "src")) {
+                                val v = d.optString(k, "")
+                                if (v.startsWith("http")) { found = v; break }
+                            }
+                        }
+                    } catch (e: Exception) { /* not JSON */ }
+
+                    if (found == null) {
+                        found = Regex("""https?://[^\s"']+\.(mpd|m3u8)[^\s"']*""").find(bodyStr)?.value
                     }
-                } catch (e: Exception) { /* not JSON */ }
 
-                if (found == null) {
-                    found = Regex("""https?://[^\s"']+\.(mpd|m3u8)[^\s"']*""").find(bodyStr)?.value
-                }
-
-                if (found != null) {
-                    android.util.Log.i("Media3Manager", "Resolved from body: $found")
-                    Triple(found, null, null)
+                    if (found != null) {
+                        android.util.Log.i("Media3Manager", "Resolved from body: $found")
+                        Triple(found, null, null)
+                    } else {
+                        android.util.Log.w("Media3Manager", "No stream URL in API body, using original URL")
+                        Triple(url, null, null)
+                    }
                 } else {
-                    android.util.Log.w("Media3Manager", "No stream URL in API body, using original URL")
+                    android.util.Log.e("Media3Manager", "API returned HTTP $code, using original URL")
                     Triple(url, null, null)
                 }
-            } else {
-                response.body?.close()
-                android.util.Log.e("Media3Manager", "API returned HTTP $code, using original URL")
-                Triple(url, null, null)
             }
         } catch (e: Exception) {
             android.util.Log.e("Media3Manager", "resolveApiDirectUrl failed: ${e.message}", e)
@@ -516,10 +520,10 @@ object Media3Manager {
 
         android.util.Log.i("Media3Manager", "play() called (#$currentSeq): url=$url drmScheme=$drmScheme drmLicenseUri=${drmLicenseUri?.take(60)} manifestType=$manifestType headers=$headers")
 
-        Thread {
+        playExecutor.execute {
             try {
                 val (resolvedUrl, resolvedScheme, resolvedLicense) = resolveApiDirectUrl(url, userAgent, headers)
-                if (currentSeq != playSequence.get()) return@Thread
+                if (currentSeq != playSequence.get()) return@execute
                 val rawScheme = (resolvedScheme ?: drmScheme)?.takeIf { it.isNotBlank() }
                 val finalDrmLicense = (resolvedLicense ?: drmLicenseUri)?.takeIf { it.isNotBlank() }
                 val finalDrmScheme = when {
@@ -711,7 +715,7 @@ object Media3Manager {
                 
                 val mediaSource = mediaSourceFactory.createMediaSource(mediaItemBuilder.build())
 
-                if (currentSeq != playSequence.get()) return@Thread
+                if (currentSeq != playSequence.get()) return@execute
 
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     if (currentSeq != playSequence.get()) return@post
@@ -721,14 +725,14 @@ object Media3Manager {
                     p.playWhenReady = true
                 }
             } catch (e: Exception) {
-                if (currentSeq != playSequence.get()) return@Thread
-                android.util.Log.e("Media3Manager", "Thread failed during play() setup (#$currentSeq)!", e)
+                if (currentSeq != playSequence.get()) return@execute
+                android.util.Log.e("Media3Manager", "Worker failed during play() setup (#$currentSeq)!", e)
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     if (currentSeq != playSequence.get()) return@post
                     _state.value = PlayerState.Error("Gagal mempersiapkan channel: ${e.message}")
                 }
             }
-        }.start()
+        }
     }
 
     fun pause()  { player?.pause() }

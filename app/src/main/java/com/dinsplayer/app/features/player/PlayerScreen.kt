@@ -372,21 +372,16 @@ fun PlayerScreen(
 
     // Update clock every second
     LaunchedEffect(Unit) {
+        val days   = arrayOf("Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab")
+        val months = arrayOf("Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des")
         while (coroutineContext.isActive) {
-            val now = java.util.Calendar.getInstance()
-            val day = arrayOf("Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab")[now.get(java.util.Calendar.DAY_OF_WEEK) - 1]
-            val date = String.format("%s, %02d %s %04d",
-                day,
-                now.get(java.util.Calendar.DAY_OF_MONTH),
-                arrayOf("Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des")[now.get(java.util.Calendar.MONTH)],
-                now.get(java.util.Calendar.YEAR)
+            val now   = java.time.LocalDateTime.now()
+            val day   = days[now.dayOfWeek.value % 7]        // Mon=1..Sun=7 → index 1..0
+            val month = months[now.monthValue - 1]
+            clockText = "%s, %02d %s %04d | %02d:%02d:%02d".format(
+                day, now.dayOfMonth, month, now.year,
+                now.hour, now.minute, now.second
             )
-            val time = String.format("%02d:%02d:%02d",
-                now.get(java.util.Calendar.HOUR_OF_DAY),
-                now.get(java.util.Calendar.MINUTE),
-                now.get(java.util.Calendar.SECOND)
-            )
-            clockText = "$date | $time"
             delay(1000L)
         }
     }
@@ -1239,9 +1234,13 @@ fun PlayerScreen(
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                                     IconButton(
                                         onClick = {
-                                            activity?.enterPictureInPictureMode(
-                                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-                                            )
+                                            try {
+                                                activity?.enterPictureInPictureMode(
+                                                    PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
+                                                )
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
                                         },
                                         modifier = Modifier
                                             .size(lsCtrlSize)
@@ -1306,18 +1305,22 @@ fun PlayerScreen(
                             ) {
                                 Icon(Icons.Filled.Lock, "Kunci", tint = Color.White, modifier = Modifier.size(iconSize))
                             }
-                            Spacer(Modifier.width(14.dp))
-                            IconButton(
-                                onClick = {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                        activity?.enterPictureInPictureMode(
-                                            PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)
-                            ) {
-                                Icon(Icons.Filled.PictureInPictureAlt, "PiP", tint = Color.White, modifier = Modifier.size(iconSize))
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                                Spacer(Modifier.width(14.dp))
+                                IconButton(
+                                    onClick = {
+                                        try {
+                                            activity?.enterPictureInPictureMode(
+                                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
+                                            )
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    },
+                                    modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(Icons.Filled.PictureInPictureAlt, "PiP", tint = Color.White, modifier = Modifier.size(iconSize))
+                                }
                             }
                             Spacer(Modifier.width(14.dp))
                             IconButton(

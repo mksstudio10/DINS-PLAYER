@@ -3,7 +3,6 @@ package com.dinsplayer.app.core.player
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
-import androidx.core.app.NotificationCompat
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -13,23 +12,31 @@ class PlayerService : MediaSessionService() {
 
     companion object {
         private const val CHANNEL_ID = "dins_player_playback"
-        private const val NOTIF_ID   = 1001
     }
 
     override fun onCreate() {
         super.onCreate()
-
         Media3Manager.init(applicationContext)
-        val player = Media3Manager.getPlayer() ?: return
-
-        mediaSession = MediaSession.Builder(this, player).build()
-
+        initSession()
         createNotificationChannel()
-        // Media3 handles the foreground service notification automatically
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    private fun initSession() {
+        if (mediaSession != null) return
+        val player = Media3Manager.getPlayer() ?: run {
+            Media3Manager.init(applicationContext)
+            Media3Manager.getPlayer()
+        } ?: return
+
+        mediaSession = MediaSession.Builder(this, player).build()
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        if (mediaSession == null) {
+            initSession()
+        }
+        return mediaSession
+    }
 
     override fun onDestroy() {
         mediaSession?.run {

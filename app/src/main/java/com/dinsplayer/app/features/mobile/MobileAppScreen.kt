@@ -1,6 +1,9 @@
 package com.dinsplayer.app.features.mobile
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -191,7 +194,10 @@ fun MobileAppScreen() {
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     AnimatedContent(
                         targetState = effectiveTab,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)) togetherWith
+                            fadeOut(animationSpec = tween(durationMillis = 120, easing = LinearOutSlowInEasing))
+                        },
                         label = "tab"
                     ) { tab ->
                         when (tab) {

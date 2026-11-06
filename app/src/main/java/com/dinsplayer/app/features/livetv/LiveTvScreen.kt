@@ -402,12 +402,12 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
     }
 }
 
-private val epgTimeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+private val epgTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
 
-@Synchronized
 private fun formatEpgTimeRange(startMillis: Long, stopMillis: Long): String {
-    val start = epgTimeFormat.format(java.util.Date(startMillis))
-    val stop = epgTimeFormat.format(java.util.Date(stopMillis))
+    val zone  = java.time.ZoneId.systemDefault()
+    val start = java.time.Instant.ofEpochMilli(startMillis).atZone(zone).format(epgTimeFormatter)
+    val stop  = java.time.Instant.ofEpochMilli(stopMillis).atZone(zone).format(epgTimeFormatter)
     return "$start - $stop"
 }
 
@@ -433,7 +433,11 @@ private fun ChannelRow(channel: Channel, epgProgram: com.dinsplayer.app.core.epg
         ) {
             if (channel.logoUrl.isNotBlank()) {
                 AsyncImage(
-                    model = channel.logoUrl,
+                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                        .data(channel.logoUrl)
+                        .crossfade(true)
+                        .crossfade(200)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(40.dp)
@@ -501,7 +505,11 @@ private fun ChannelGridCard(
         ) {
             if (channel.logoUrl.isNotBlank()) {
                 AsyncImage(
-                    model = channel.logoUrl,
+                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                        .data(channel.logoUrl)
+                        .crossfade(true)
+                        .crossfade(200)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier

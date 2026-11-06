@@ -125,6 +125,13 @@ fun SetelanScreen(
     var showEpgDialog by remember { mutableStateOf(false) }
     var showTosDialog by remember { mutableStateOf(false) }
 
+    val appVersion = remember(context) {
+        try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName ?: "1.0.0"
+        } catch (_: Exception) { "1.0.0" }
+    }
+
     val epgUrlsPref = prefs?.get(KEY_EPG_URLS)
     val epgUrls = remember(epgUrlsPref) {
         epgUrlsPref?.toList() ?: EpgManager.defaultUrls
@@ -344,8 +351,7 @@ fun SetelanScreen(
                         border = androidx.compose.foundation.BorderStroke(1.dp, ColorSuccess.copy(alpha = 0.3f))
                     ) {
                         Text(
-                            text = "v1.0.0",
-                            style = MaterialTheme.typography.labelSmall.copy(
+                            text = "v$appVersion",                            style = MaterialTheme.typography.labelSmall.copy(
                                 color = ColorSuccess,
                                 fontWeight = FontWeight.SemiBold
                             ),

@@ -82,7 +82,7 @@ enum class UserAgentOption(val label: String, val value: String) {
     DEFAULT("Default", "EMPTY_UA"),
     CUSTOM("Custom", ""),
     CHROME("Chrome", "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36"),
-    DINSPLAYER("DinsPlayer", "DinsPlayer/1.0 (Android; Linux; U; ExoPlayer) Chrome/129.0.0.0 Safari/537.36"),
+    DINSPLAYER("DinsPlayer", "DinsPlayer/1.0 (Android) Chrome/129.0.0.0 Safari/537.36"),
     VLC("VLC", "VLC/3.0.18 LibVLC/3.0.18"),
     TIVIMATE("TiviMate", "TiviMate/4.7.0"),
 }

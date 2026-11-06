@@ -63,107 +63,110 @@ object EpgManager {
         if (urls.isEmpty()) return
         _isLoading.value = true
         
-        withContext(Dispatchers.IO) {
-            val combinedData = mutableMapOf<String, MutableList<EpgProgram>>()
-            
-            for (url in urls) {
-                try {
-                    Log.i(TAG, "Downloading EPG from $url")
-                    val request = Request.Builder().url(url).build()
-                    val response = client.newCall(request).execute()
-                    
-                    if (response.isSuccessful) {
-                        response.body?.byteStream()?.use { rawStream ->
-                            val inputStream = if (url.endsWith(".gz", ignoreCase = true) || "gzip".equals(response.header("Content-Encoding"), ignoreCase = true)) {
-                                java.util.zip.GZIPInputStream(rawStream)
-                            } else {
-                                rawStream
-                            }
-                            val factory = XmlPullParserFactory.newInstance()
-                            factory.isNamespaceAware = true
-                            val parser = factory.newPullParser()
-                            parser.setInput(inputStream, null)
-
-                            var eventType = parser.eventType
-                            var currentChannel: String? = null
-                            var currentStart = 0L
-                            var currentStop = 0L
-                            var currentTitle = ""
-                            var currentDesc = ""
-                            
-                            val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
-                            val altDateFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
-
-                            while (eventType != XmlPullParser.END_DOCUMENT) {
-                                when (eventType) {
-                                    XmlPullParser.START_TAG -> {
-                                        when (parser.name) {
-                                            "programme" -> {
-                                                currentChannel = parser.getAttributeValue(null, "channel")
-                                                val startStr = parser.getAttributeValue(null, "start") ?: ""
-                                                val stopStr = parser.getAttributeValue(null, "stop") ?: ""
-                                                
-                                                try {
-                                                    currentStart = if (startStr.contains("+") || startStr.contains("-")) {
-                                                        dateFormat.parse(startStr)?.time ?: 0L
-                                                    } else {
-                                                        altDateFormat.parse(startStr)?.time ?: 0L
-                                                    }
-                                                    currentStop = if (stopStr.contains("+") || stopStr.contains("-")) {
-                                                        dateFormat.parse(stopStr)?.time ?: 0L
-                                                    } else {
-                                                        altDateFormat.parse(stopStr)?.time ?: 0L
-                                                    }
-                                                } catch (e: Exception) {
-                                                    // Parse error, ignore
-                                                }
-                                                
-                                                currentTitle = ""
-                                                currentDesc = ""
-                                            }
-                                            "title" -> {
-                                                if (currentChannel != null) {
-                                                    currentTitle = parser.nextText()
-                                                }
-                                            }
-                                            "desc" -> {
-                                                if (currentChannel != null) {
-                                                    currentDesc = parser.nextText()
-                                                }
-                                            }
-                                        }
-                                    }
-                                    XmlPullParser.END_TAG -> {
-                                        if (parser.name == "programme" && currentChannel != null) {
-                                            if (currentStart > 0 && currentTitle.isNotBlank()) {
-                                                val program = EpgProgram(currentTitle, currentDesc, currentStart, currentStop)
-                                                if (!combinedData.containsKey(currentChannel)) {
-                                                    combinedData[currentChannel] = mutableListOf()
-                                                }
-                                                combinedData[currentChannel]?.add(program)
-                                            }
-                                            currentChannel = null
-                                        }
-                                    }
+        try {
+            withContext(Dispatchers.IO) {
+                val combinedData = mutableMapOf<String, MutableList<EpgProgram>>()
+                
+                for (url in urls) {
+                    try {
+                        Log.i(TAG, "Downloading EPG from $url")
+                        val request = Request.Builder().url(url).build()
+                        val response = client.newCall(request).execute()
+                        
+                        if (response.isSuccessful) {
+                            response.body?.byteStream()?.use { rawStream ->
+                                val inputStream = if (url.endsWith(".gz", ignoreCase = true) || "gzip".equals(response.header("Content-Encoding"), ignoreCase = true)) {
+                                    java.util.zip.GZIPInputStream(rawStream)
+                                } else {
+                                    rawStream
                                 }
-                                eventType = parser.next()
+                                val factory = XmlPullParserFactory.newInstance()
+                                factory.isNamespaceAware = true
+                                val parser = factory.newPullParser()
+                                parser.setInput(inputStream, null)
+
+                                var eventType = parser.eventType
+                                var currentChannel: String? = null
+                                var currentStart = 0L
+                                var currentStop = 0L
+                                var currentTitle = ""
+                                var currentDesc = ""
+                                
+                                val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.ENGLISH)
+                                val altDateFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH)
+
+                                while (eventType != XmlPullParser.END_DOCUMENT) {
+                                    when (eventType) {
+                                        XmlPullParser.START_TAG -> {
+                                            when (parser.name) {
+                                                "programme" -> {
+                                                    currentChannel = parser.getAttributeValue(null, "channel")
+                                                    val startStr = parser.getAttributeValue(null, "start") ?: ""
+                                                    val stopStr = parser.getAttributeValue(null, "stop") ?: ""
+                                                    
+                                                    try {
+                                                        currentStart = if (startStr.contains("+") || startStr.contains("-")) {
+                                                            dateFormat.parse(startStr)?.time ?: 0L
+                                                        } else {
+                                                            altDateFormat.parse(startStr)?.time ?: 0L
+                                                        }
+                                                        currentStop = if (stopStr.contains("+") || stopStr.contains("-")) {
+                                                            dateFormat.parse(stopStr)?.time ?: 0L
+                                                        } else {
+                                                            altDateFormat.parse(stopStr)?.time ?: 0L
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        // Parse error, ignore
+                                                    }
+                                                    
+                                                    currentTitle = ""
+                                                    currentDesc = ""
+                                                }
+                                                "title" -> {
+                                                    if (currentChannel != null) {
+                                                        currentTitle = parser.nextText()
+                                                    }
+                                                }
+                                                "desc" -> {
+                                                    if (currentChannel != null) {
+                                                        currentDesc = parser.nextText()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        XmlPullParser.END_TAG -> {
+                                            if (parser.name == "programme" && currentChannel != null) {
+                                                if (currentStart > 0 && currentTitle.isNotBlank()) {
+                                                    val program = EpgProgram(currentTitle, currentDesc, currentStart, currentStop)
+                                                    if (!combinedData.containsKey(currentChannel)) {
+                                                        combinedData[currentChannel] = mutableListOf()
+                                                    }
+                                                    combinedData[currentChannel]?.add(program)
+                                                }
+                                                currentChannel = null
+                                            }
+                                        }
+                                    }
+                                    eventType = parser.next()
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error syncing EPG from $url", e)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error syncing EPG from $url", e)
                 }
+                
+                // Sort programmes by start time
+                val finalData = combinedData.mapValues { entry -> 
+                    entry.value.sortedBy { it.startMillis } 
+                }
+                _epgData.value = finalData
+                // Build normalized lookup index for O(1) channel matching in UI
+                _normalizedIndex.value = finalData.keys.associateBy { key -> normalizeKey(key) }
             }
-            
-            // Sort programmes by start time
-            val finalData = combinedData.mapValues { entry -> 
-                entry.value.sortedBy { it.startMillis } 
-            }
-            _epgData.value = finalData
-            // Build normalized lookup index for O(1) channel matching in UI
-            _normalizedIndex.value = finalData.keys.associateBy { key -> normalizeKey(key) }
+        } finally {
+            _isLoading.value = false
         }
-        _isLoading.value = false
     }
 
     /**
