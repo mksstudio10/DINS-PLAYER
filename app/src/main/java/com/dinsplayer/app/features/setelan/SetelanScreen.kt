@@ -3,6 +3,8 @@ package com.dinsplayer.app.features.setelan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -895,6 +897,26 @@ private fun EpgManagementDialog(
     var newUrl by remember { mutableStateOf("") }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
+    val scope = rememberCoroutineScope()
+    val firstUrlFocusRequester = remember { FocusRequester() }
+    val lastUrlFocusRequester = remember { FocusRequester() }
+    val inputFocusRequester = remember { FocusRequester() }
+    val addBtnFocusRequester = remember { FocusRequester() }
+    val cancelBtnFocusRequester = remember { FocusRequester() }
+    val saveBtnFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        for (delayMs in listOf(50L, 120L, 250L, 400L)) {
+            kotlinx.coroutines.delay(delayMs)
+            val focused = if (editableUrls.isNotEmpty()) {
+                runCatching { firstUrlFocusRequester.requestFocus() }.isSuccess
+            } else {
+                runCatching { inputFocusRequester.requestFocus() }.isSuccess
+            }
+            if (focused) break
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -903,11 +925,9 @@ private fun EpgManagementDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.72f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                ),
+                .pointerInput(Unit) {
+                    detectTapGestures { onDismiss() }
+                },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -917,11 +937,9 @@ private fun EpgManagementDialog(
                     .clip(RoundedCornerShape(18.dp))
                     .background(BgElevated)
                     .border(1.dp, DividerColor, RoundedCornerShape(18.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { focusManager.clearFocus() }
-                    )
+                    .pointerInput(Unit) {
+                        detectTapGestures { focusManager.clearFocus() }
+                    }
                     .padding(20.dp)
             ) {
                 Row(
@@ -982,19 +1000,27 @@ private fun EpgManagementDialog(
                         }
                     } else {
                         editableUrls.forEachIndexed { index, url ->
+                            var isDeleteFocused by remember { mutableStateOf(false) }
+                            val isFirst = index == 0
+                            val isLast = index == editableUrls.lastIndex
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(BgSurface)
-                                    .border(0.8.dp, DividerColor, RoundedCornerShape(10.dp))
+                                    .background(if (isDeleteFocused) AccentBlue.copy(alpha = 0.16f) else BgSurface)
+                                    .border(
+                                        width = if (isDeleteFocused) 2.dp else 0.8.dp,
+                                        color = if (isDeleteFocused) Color.White else DividerColor,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = url,
-                                    color = TextPrimary,
+                                    color = if (isDeleteFocused) Color.White else TextPrimary,
                                     fontSize = 12.sp,
+                                    fontWeight = if (isDeleteFocused) FontWeight.Medium else FontWeight.Normal,
                                     modifier = Modifier.weight(1f),
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -1002,14 +1028,41 @@ private fun EpgManagementDialog(
                                 Spacer(Modifier.width(8.dp))
                                 IconButton(
                                     onClick = {
-                                        editableUrls = editableUrls.toMutableList().apply { removeAt(index) }
+                                        val nextList = editableUrls.toMutableList().apply { removeAt(index) }
+                                        editableUrls = nextList
+                                        scope.launch {
+                                            kotlinx.coroutines.delay(40L)
+                                            if (nextList.isNotEmpty()) {
+                                                runCatching { firstUrlFocusRequester.requestFocus() }
+                                            } else {
+                                                runCatching { inputFocusRequester.requestFocus() }
+                                            }
+                                        }
                                     },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .then(if (isFirst) Modifier.focusRequester(firstUrlFocusRequester) else Modifier)
+                                        .then(if (isLast && !isFirst) Modifier.focusRequester(lastUrlFocusRequester) else Modifier)
+                                        .onFocusChanged { isDeleteFocused = it.isFocused || it.hasFocus }
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && isLast && event.key == Key.DirectionDown) {
+                                                runCatching { inputFocusRequester.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                            false
+                                        }
+                                        .border(
+                                            width = if (isDeleteFocused) 2.dp else 0.dp,
+                                            color = if (isDeleteFocused) Color.White else Color.Transparent,
+                                            shape = CircleShape
+                                        )
+                                        .clip(CircleShape)
+                                        .background(if (isDeleteFocused) ColorError.copy(alpha = 0.28f) else Color.Transparent)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Hapus",
-                                        tint = ColorError.copy(alpha = 0.85f),
+                                        tint = if (isDeleteFocused) Color.White else ColorError.copy(alpha = 0.85f),
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -1025,16 +1078,50 @@ private fun EpgManagementDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    var isInputFocused by remember { mutableStateOf(false) }
                     OutlinedTextField(
                         value = newUrl,
                         onValueChange = { newUrl = it },
                         placeholder = { Text("https://example.com/epg.xml.gz", color = TextMuted, fontSize = 12.sp) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(inputFocusRequester)
+                            .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus }
+                            .border(
+                                width = if (isInputFocused) 2.5.dp else 0.dp,
+                                color = if (isInputFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionUp -> {
+                                            if (editableUrls.isNotEmpty()) {
+                                                val target = if (editableUrls.size == 1) firstUrlFocusRequester else lastUrlFocusRequester
+                                                runCatching { target.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                        }
+                                        Key.DirectionDown -> {
+                                            runCatching { cancelBtnFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        Key.DirectionRight -> {
+                                            if (newUrl.isEmpty()) {
+                                                runCatching { addBtnFocusRequester.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                                false
+                            },
                         singleLine = true,
                         textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = TextPrimary),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AccentBlue,
+                            focusedBorderColor = Color.White,
                             unfocusedBorderColor = DividerColor,
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
@@ -1044,18 +1131,47 @@ private fun EpgManagementDialog(
                         )
                     )
 
+                    var isAddFocused by remember { mutableStateOf(false) }
                     Button(
                         onClick = {
                             val trimmed = newUrl.trim()
                             if (trimmed.isNotBlank() && !editableUrls.contains(trimmed)) {
                                 editableUrls = editableUrls + trimmed
                                 newUrl = ""
-                                focusManager.clearFocus()
                             }
                         },
                         modifier = Modifier
                             .height(48.dp)
-                            .tvFocusRing(RoundedCornerShape(10.dp)),
+                            .focusRequester(addBtnFocusRequester)
+                            .onFocusChanged { isAddFocused = it.isFocused || it.hasFocus }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionLeft -> {
+                                            runCatching { inputFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        Key.DirectionUp -> {
+                                            if (editableUrls.isNotEmpty()) {
+                                                val target = if (editableUrls.size == 1) firstUrlFocusRequester else lastUrlFocusRequester
+                                                runCatching { target.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                        }
+                                        Key.DirectionDown -> {
+                                            runCatching { saveBtnFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                                false
+                            }
+                            .border(
+                                width = if (isAddFocused) 2.5.dp else 0.dp,
+                                color = if (isAddFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            ),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 14.dp)
@@ -1070,27 +1186,74 @@ private fun EpgManagementDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    var isCancelFocused by remember { mutableStateOf(false) }
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier
                             .weight(1f)
-                            .tvFocusRing(RoundedCornerShape(10.dp)),
+                            .focusRequester(cancelBtnFocusRequester)
+                            .onFocusChanged { isCancelFocused = it.isFocused || it.hasFocus }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionUp -> {
+                                            runCatching { inputFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        Key.DirectionRight -> {
+                                            runCatching { saveBtnFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                                false
+                            },
                         shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DividerColor),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (isCancelFocused) 2.5.dp else 1.dp,
+                            color = if (isCancelFocused) Color.White else DividerColor
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (isCancelFocused) Color.White else TextSecondary,
+                            containerColor = if (isCancelFocused) Color.White.copy(alpha = 0.14f) else Color.Transparent
+                        )
                     ) {
-                        Text("Batal")
+                        Text("Batal", fontWeight = if (isCancelFocused) FontWeight.Bold else FontWeight.Normal)
                     }
 
+                    var isSaveFocused by remember { mutableStateOf(false) }
                     Button(
                         onClick = { onSave(editableUrls) },
                         modifier = Modifier
                             .weight(1f)
-                            .tvFocusRing(RoundedCornerShape(10.dp)),
+                            .focusRequester(saveBtnFocusRequester)
+                            .onFocusChanged { isSaveFocused = it.isFocused || it.hasFocus }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionUp -> {
+                                            runCatching { addBtnFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        Key.DirectionLeft -> {
+                                            runCatching { cancelBtnFocusRequester.requestFocus() }
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                                false
+                            }
+                            .border(
+                                width = if (isSaveFocused) 2.5.dp else 0.dp,
+                                color = if (isSaveFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            ),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
                     ) {
-                        Text("Simpan", color = Color.White)
+                        Text("Simpan", color = Color.White, fontWeight = if (isSaveFocused) FontWeight.Bold else FontWeight.Normal)
                     }
                 }
             }

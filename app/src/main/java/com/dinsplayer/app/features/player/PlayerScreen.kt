@@ -963,38 +963,14 @@ fun PlayerScreen(
                         )
                 )
 
-                // Top bar: portrait has '<' button at top-left, date/time centered
+                // Top bar: date/time centered
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                         .align(Alignment.TopCenter),
                 ) {
-                    if (!isLandscape) {
-                        IconButton(
-                            onClick = {
-                                Media3Manager.stop()
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                onBack()
-                            },
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                                .tvFocusRing(CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.ChevronLeft,
-                                contentDescription = "Kembali",
-                                tint = Color.White,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                    }
-
                     // Clock centered
                     Text(
                         text = clockText,
@@ -1005,71 +981,103 @@ fun PlayerScreen(
                     )
                 }
 
-                // LIVE dot (top-left) & Channel Title & EPG Schedule
+                // LIVE dot (top-left) & Channel Title & EPG Schedule (with '<' button to the left in Portrait mode)
                 val displayChannelTitle = title.ifBlank { activeChannel?.name ?: currentTitle }
-                if (displayChannelTitle.isNotBlank() || isLive || streamFormat.isNotEmpty() || currentEpg != null) {
-                    Column(
+                val hasChannelInfo = displayChannelTitle.isNotBlank() || isLive || streamFormat.isNotEmpty() || currentEpg != null
+                if (!isLandscape || hasChannelInfo) {
+                    Row(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
-                            .padding(start = 16.dp, top = if (isLandscape) 16.dp else 56.dp, end = 16.dp)
-                            .fillMaxWidth(if (isLandscape) 0.5f else 0.85f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                            .padding(start = 12.dp, top = if (isLandscape) 16.dp else 26.dp, end = 16.dp)
+                            .fillMaxWidth(if (isLandscape) 0.5f else 0.92f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (isLive) {
-                                Box(Modifier.size(7.dp).background(Color.Red, RoundedCornerShape(50)))
+                        if (!isLandscape) {
+                            IconButton(
+                                onClick = {
+                                    Media3Manager.stop()
+                                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                    onBack()
+                                },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                    .tvFocusRing(CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ChevronLeft,
+                                    contentDescription = "Kembali",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
                             }
-                            val liveText = if (isLive) "LIVE" else ""
-                            val separator = if (isLive && streamFormat.isNotEmpty()) " • " else ""
-                            Text(
-                                text = "$liveText$separator$streamFormat",
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
 
-                        // Judul Channel
-                        if (displayChannelTitle.isNotBlank()) {
-                            Text(
-                                text = displayChannelTitle,
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                modifier = Modifier.tvMarquee()
-                            )
-                        }
-                        
-                        // EPG Sedang Tayang di bawah judul channel
-                        if (currentEpg != null) {
-                            val currTime = "${timeFormat.format(java.util.Date(currentEpg.startMillis))}-${timeFormat.format(java.util.Date(currentEpg.stopMillis))}"
-                            Text(
-                                text = "Sedang Tayang: ${currentEpg.title} ($currTime)",
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                modifier = Modifier.tvMarquee()
-                            )
-                            
-                            if (nextEpg != null) {
-                                val nextTime = "${timeFormat.format(java.util.Date(nextEpg.startMillis))}-${timeFormat.format(java.util.Date(nextEpg.stopMillis))}"
-                                Text(
-                                    text = "Selanjutnya: ${nextEpg.title} ($nextTime)",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Clip,
-                                    modifier = Modifier.tvMarquee()
-                                )
+                        if (hasChannelInfo) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (isLive) {
+                                        Box(Modifier.size(7.dp).background(Color.Red, RoundedCornerShape(50)))
+                                    }
+                                    val liveText = if (isLive) "LIVE" else ""
+                                    val separator = if (isLive && streamFormat.isNotEmpty()) " • " else ""
+                                    Text(
+                                        text = "$liveText$separator$streamFormat",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // Judul Channel
+                                if (displayChannelTitle.isNotBlank()) {
+                                    Text(
+                                        text = displayChannelTitle,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip,
+                                        modifier = Modifier.tvMarquee()
+                                    )
+                                }
+                                
+                                // EPG Sedang Tayang di bawah judul channel
+                                if (currentEpg != null) {
+                                    val currTime = "${timeFormat.format(java.util.Date(currentEpg.startMillis))}-${timeFormat.format(java.util.Date(currentEpg.stopMillis))}"
+                                    Text(
+                                        text = "Sedang Tayang: ${currentEpg.title} ($currTime)",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip,
+                                        modifier = Modifier.tvMarquee()
+                                    )
+                                    
+                                    if (nextEpg != null) {
+                                        val nextTime = "${timeFormat.format(java.util.Date(nextEpg.startMillis))}-${timeFormat.format(java.util.Date(nextEpg.stopMillis))}"
+                                        Text(
+                                            text = "Selanjutnya: ${nextEpg.title} ($nextTime)",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Clip,
+                                            modifier = Modifier.tvMarquee()
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1360,6 +1368,24 @@ fun PlayerScreen(
                                         modifier = Modifier.size(lsIconSize)
                                     )
                                 }
+
+                                IconButton(
+                                    onClick = {
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    },
+                                    modifier = Modifier
+                                        .size(lsCtrlSize)
+                                        .clip(CircleShape)
+                                        .background(ctrlBg)
+                                        .tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.FullscreenExit,
+                                        contentDescription = "Keluar Layar Penuh",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(lsIconSize)
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -1431,10 +1457,10 @@ fun PlayerScreen(
                             )
                             Spacer(Modifier.width(14.dp))
                             IconButton(
-                                onClick = { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE },
+                                onClick = { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE },
                                 modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)
                             ) {
-                                Icon(Icons.Filled.ScreenRotation, "Rotasi Layar", tint = Color.White, modifier = Modifier.size(iconSize))
+                                Icon(Icons.Filled.Fullscreen, "Layar Penuh", tint = Color.White, modifier = Modifier.size(iconSize))
                             }
                         }
                         
