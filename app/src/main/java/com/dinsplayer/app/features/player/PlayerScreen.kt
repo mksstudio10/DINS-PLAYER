@@ -963,14 +963,38 @@ fun PlayerScreen(
                         )
                 )
 
-                // Top bar: date/time centered
+                // Top bar: portrait has '<' button at top-left, date/time centered
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                         .align(Alignment.TopCenter),
                 ) {
+                    if (!isLandscape) {
+                        IconButton(
+                            onClick = {
+                                Media3Manager.stop()
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                onBack()
+                            },
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                .tvFocusRing(CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ChevronLeft,
+                                contentDescription = "Kembali",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+
                     // Clock centered
                     Text(
                         text = clockText,
@@ -988,7 +1012,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
-                            .padding(start = 16.dp, top = 16.dp, end = 16.dp)
+                            .padding(start = 16.dp, top = if (isLandscape) 16.dp else 56.dp, end = 16.dp)
                             .fillMaxWidth(if (isLandscape) 0.5f else 0.85f),
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
@@ -1416,54 +1440,27 @@ fun PlayerScreen(
                         
                         Spacer(Modifier.height(16.dp))
 
-                        // Row 2: Back (<) + Menu | Prev · Play · Next
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // Row 2: Menu | Prev · Play · Next
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                         ) {
-                            // Back (<) + Menu button on the bottom-left
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Menu button on the bottom-left
+                            IconButton(
+                                onClick = { showChannelMenu = !showChannelMenu },
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (showChannelMenu) activeMenuBg else pillBg)
+                                    .tvFocusRing(RoundedCornerShape(12.dp))
                             ) {
-                                IconButton(
-                                    onClick = {
-                                        Media3Manager.stop()
-                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                        onBack()
-                                    },
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.45f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                                        .tvFocusRing(CircleShape)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.ChevronLeft,
-                                        contentDescription = "Kembali",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { showChannelMenu = !showChannelMenu },
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (showChannelMenu) activeMenuBg else pillBg)
-                                        .tvFocusRing(RoundedCornerShape(12.dp))
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, "Menu", tint = if (showChannelMenu) AccentBlue else Color.White, modifier = Modifier.size(24.dp))
-                                }
+                                Icon(Icons.AutoMirrored.Filled.FormatListBulleted, "Menu", tint = if (showChannelMenu) AccentBlue else Color.White, modifier = Modifier.size(26.dp))
                             }
 
-                            Spacer(Modifier.weight(1f))
-
-                            // Prev · Play · Next centered in remaining space
+                            // Prev · Play · Next perfectly centered
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 IconButton(
@@ -1533,8 +1530,6 @@ fun PlayerScreen(
                                     Icon(Icons.Filled.SkipNext, "Berikutnya", tint = Color.White.copy(alpha = if (channels.isNotEmpty() && currentChannelIndex < channels.size - 1) 1f else 0.4f), modifier = Modifier.size(24.dp))
                                 }
                             }
-
-                            Spacer(Modifier.weight(1f))
                         }
 
                         // Bottom padding for portrait
