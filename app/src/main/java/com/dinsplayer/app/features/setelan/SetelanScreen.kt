@@ -316,11 +316,10 @@ fun SetelanScreen(
                             .border(1.dp, AccentBlue.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(com.dinsplayer.app.R.drawable.ic_dins_logo),
                             contentDescription = null,
-                            tint = AccentBlue,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
 

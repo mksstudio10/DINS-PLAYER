@@ -215,9 +215,28 @@ fun PlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val menuFocusRequester = remember { FocusRequester() }
     val errorRetryFocusRequester = remember { FocusRequester() }
+    val unlockFocusRequester = remember { FocusRequester() }
+
+    androidx.activity.compose.BackHandler(enabled = isLocked) {
+        showUnlock = !showUnlock
+        lastInteractionTime = System.currentTimeMillis()
+    }
 
     LaunchedEffect(Unit) {
         rootFocusRequester.requestFocus()
+    }
+
+    LaunchedEffect(isLocked, showUnlock) {
+        if (isLocked) {
+            if (showUnlock) {
+                for (delayMs in listOf(40L, 120L, 250L)) {
+                    delay(delayMs)
+                    if (runCatching { unlockFocusRequester.requestFocus() }.isSuccess) break
+                }
+            } else {
+                runCatching { rootFocusRequester.requestFocus() }
+            }
+        }
     }
 
     LaunchedEffect(showControls) {
@@ -228,7 +247,7 @@ fun PlayerScreen(
                     playPauseFocusRequester.requestFocus()
                 } catch (_: Exception) {}
             }
-        } else {
+        } else if (!showChannelMenu && !showSettings && !showVrDialog && !(isLocked && showUnlock)) {
             try {
                 rootFocusRequester.requestFocus()
             } catch (_: Exception) {}
@@ -236,7 +255,9 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(showChannelMenu, showSettings, showVrDialog) {
-        if (!showChannelMenu && !showSettings && !showVrDialog) {
+        if (showChannelMenu || showSettings || showVrDialog) {
+            showControls = false
+        } else {
             delay(100L)
             try {
                 if (showControls) {
@@ -410,9 +431,9 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3 seconds of no interaction
-    LaunchedEffect(showControls, lastInteractionTime) {
-        if (showControls) {
+    // Auto-hide controls or unlock button after 3.5 seconds of no interaction
+    LaunchedEffect(showControls, showUnlock, lastInteractionTime) {
+        if (showControls || showUnlock) {
             delay(3500L)
             if (!showSettings && !showChannelMenu) {
                 showControls = false
@@ -495,12 +516,29 @@ fun PlayerScreen(
                             return@onPreviewKeyEvent false
                         }
                         isLocked -> {
-                            if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                            if (!showUnlock) {
                                 showUnlock = true
-                                showControls = true
+                                lastInteractionTime = System.currentTimeMillis()
                                 return@onPreviewKeyEvent true
                             }
-                            return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionCenter, Key.Enter -> {
+                                    isLocked = false
+                                    showUnlock = false
+                                    showControls = true
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    return@onPreviewKeyEvent true
+                                }
+                                Key.Back, Key.Escape -> {
+                                    showUnlock = false
+                                    return@onPreviewKeyEvent true
+                                }
+                                else -> {
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    runCatching { unlockFocusRequester.requestFocus() }
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
                         }
                         !showControls -> {
                             when (event.key) {
@@ -600,8 +638,7 @@ fun PlayerScreen(
                             showChannelMenu = false
                         } else if (!isPipMode) {
                             if (isLocked) {
-                                showUnlock = true
-                                showControls = true
+                                showUnlock = !showUnlock
                             } else {
                                 showControls = !showControls
                                 if (showControls) showSettings = false
@@ -644,6 +681,9 @@ fun PlayerScreen(
                     PlayerView(ctx).apply {
                         player = Media3Manager.getPlayer()
                         useController = false
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                        descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         subtitleView?.apply {
                             setUserDefaultStyle()
@@ -856,16 +896,28 @@ fun PlayerScreen(
                 exit  = fadeOut(animationSpec = tween(200)),
                 modifier = Modifier.align(Alignment.Center)
             ) {
+                var isUnlockFocused by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = { 
-                        isLocked = false 
+                        isLocked = false
+                        showUnlock = false
                         showControls = true
                         lastInteractionTime = System.currentTimeMillis()
                     },
                     modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .size(68.dp)
+                        .focusRequester(unlockFocusRequester)
+                        .onFocusChanged { isUnlockFocused = it.isFocused || it.hasFocus }
+                        .border(
+                            width = if (isUnlockFocused) 2.5.dp else 1.5.dp,
+                            color = if (isUnlockFocused) Color.White else AccentBlue.copy(alpha = 0.7f),
+                            shape = CircleShape
+                        )
+                        .clip(CircleShape)
+                        .background(
+                            if (isUnlockFocused) AccentBlue.copy(alpha = 0.45f)
+                            else Color.Black.copy(alpha = 0.72f)
+                        )
                 ) {
                     Icon(Icons.Filled.LockOpen, "Buka Kunci", tint = Color.White, modifier = Modifier.size(32.dp))
                 }
@@ -911,7 +963,7 @@ fun PlayerScreen(
                         )
                 )
 
-                // Top bar: date/time center, X button top-right
+                // Top bar: date/time centered
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -927,25 +979,6 @@ fun PlayerScreen(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.align(Alignment.Center),
                     )
-                    // X close button top-right
-                    IconButton(
-                        onClick = {
-                            Media3Manager.stop()
-                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            onBack()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .size(40.dp)
-                            .tvFocusRing(CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Tutup",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
                 }
 
                 // LIVE dot (top-left) & Channel Title & EPG Schedule
@@ -955,8 +988,8 @@ fun PlayerScreen(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
-                            .padding(start = 16.dp, top = 16.dp, end = 64.dp) // prevent overlap with Close btn
-                            .fillMaxWidth(if (isLandscape) 0.5f else 0.85f), // limit width to prevent overlap
+                            .padding(start = 16.dp, top = 16.dp, end = 16.dp)
+                            .fillMaxWidth(if (isLandscape) 0.5f else 0.85f),
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Row(
@@ -1095,22 +1128,48 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Left: Channel Menu
-                            IconButton(
-                                onClick = { showChannelMenu = !showChannelMenu },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (showChannelMenu) activeMenuBg else pillBg)
-                                    .tvFocusRing(RoundedCornerShape(12.dp))
-                                    .focusRequester(menuFocusRequester)
+                            // Left: Back (<) + Channel Menu
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.FormatListBulleted,
-                                    contentDescription = "Menu Saluran",
-                                    tint = if (showChannelMenu) AccentBlue else Color.White,
-                                    modifier = Modifier.size(26.dp)
-                                )
+                                IconButton(
+                                    onClick = {
+                                        Media3Manager.stop()
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                        onBack()
+                                    },
+                                    modifier = Modifier
+                                        .size(lsCtrlSize)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                        .tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ChevronLeft,
+                                        contentDescription = "Kembali",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { showChannelMenu = !showChannelMenu },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (showChannelMenu) activeMenuBg else pillBg)
+                                        .tvFocusRing(RoundedCornerShape(12.dp))
+                                        .focusRequester(menuFocusRequester)
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.FormatListBulleted,
+                                        contentDescription = "Menu Saluran",
+                                        tint = if (showChannelMenu) AccentBlue else Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
                             }
 
                             // Center: Prev Channel · Play/Pause · Next Channel
@@ -1216,7 +1275,12 @@ fun PlayerScreen(
                                 }
 
                                 IconButton(
-                                    onClick = { isLocked = true; showControls = false },
+                                    onClick = {
+                                        isLocked = true
+                                        showControls = false
+                                        showUnlock = true
+                                        lastInteractionTime = System.currentTimeMillis()
+                                    },
                                     modifier = Modifier
                                         .size(lsCtrlSize)
                                         .clip(CircleShape)
@@ -1300,7 +1364,12 @@ fun PlayerScreen(
                             }
                             Spacer(Modifier.width(14.dp))
                             IconButton(
-                                onClick = { isLocked = true; showControls = false },
+                                onClick = {
+                                    isLocked = true
+                                    showControls = false
+                                    showUnlock = true
+                                    lastInteractionTime = System.currentTimeMillis()
+                                },
                                 modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)
                             ) {
                                 Icon(Icons.Filled.Lock, "Kunci", tint = Color.White, modifier = Modifier.size(iconSize))
@@ -1347,24 +1416,54 @@ fun PlayerScreen(
                         
                         Spacer(Modifier.height(16.dp))
 
-                        // Row 2: Menu | Prev · Play · Next
-                        Box(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                        // Row 2: Back (<) + Menu | Prev · Play · Next
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Menu button on the left
-                            IconButton(
-                                onClick = { showChannelMenu = !showChannelMenu },
-                                modifier = Modifier.align(Alignment.CenterStart).size(48.dp).clip(RoundedCornerShape(12.dp))
-                                    .background(if (showChannelMenu) activeMenuBg else pillBg)
-                                    .tvFocusRing(RoundedCornerShape(12.dp))
+                            // Back (<) + Menu button on the bottom-left
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.FormatListBulleted, "Menu", tint = if (showChannelMenu) AccentBlue else Color.White, modifier = Modifier.size(26.dp))
+                                IconButton(
+                                    onClick = {
+                                        Media3Manager.stop()
+                                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                        onBack()
+                                    },
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.45f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                        .tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.ChevronLeft,
+                                        contentDescription = "Kembali",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { showChannelMenu = !showChannelMenu },
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (showChannelMenu) activeMenuBg else pillBg)
+                                        .tvFocusRing(RoundedCornerShape(12.dp))
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, "Menu", tint = if (showChannelMenu) AccentBlue else Color.White, modifier = Modifier.size(24.dp))
+                                }
                             }
 
-                            // Prev · Play · Next perfectly centered
+                            Spacer(Modifier.weight(1f))
+
+                            // Prev · Play · Next centered in remaining space
                             Row(
-                                modifier = Modifier.align(Alignment.Center),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 IconButton(
@@ -1434,11 +1533,12 @@ fun PlayerScreen(
                                     Icon(Icons.Filled.SkipNext, "Berikutnya", tint = Color.White.copy(alpha = if (channels.isNotEmpty() && currentChannelIndex < channels.size - 1) 1f else 0.4f), modifier = Modifier.size(24.dp))
                                 }
                             }
+
+                            Spacer(Modifier.weight(1f))
                         }
 
                         // Bottom padding for portrait
                         Spacer(Modifier.height(16.dp))
-                    }
                     } // end if-else landscape/portrait
                 } // end Column
             } // end Box(fillMaxSize) in AnimatedVisibility
@@ -1472,239 +1572,352 @@ fun PlayerScreen(
 
         // Quality Selector Dialog
         if (showSettings) {
-        val exoPlayer = Media3Manager.getPlayer()
-        
-        if (exoPlayer != null) {
-            Dialog(
-                onDismissRequest = { showSettings = false; activeTab = 0 },
-                properties = DialogProperties(usePlatformDefaultWidth = false)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // No scrim: the panel is the only thing on screen, and a dimmed
-                        // full-screen backdrop read as a second dark overlay over the video.
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { showSettings = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(min = 320.dp, max = 520.dp)
-                            .fillMaxWidth(0.85f)
-                            .background(BgDialog, RoundedCornerShape(20.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
-                            .padding(24.dp)
-                            .verticalScroll(qScrollState)
-                            // enabled = false does not consume touches, so taps inside the
-                            // panel fell through to the backdrop and dismissed it.
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {}
-                    ) {
-                        val videoTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
-                        val audioTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
-                        val textTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
-    
-                        val videoTrackList = mutableListOf<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>>()
-                        videoTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) videoTrackList.add(Triple(grp, i, grp.getFormat(i))) }
-    
-                        val audioTrackList = mutableListOf<Pair<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>, Boolean>>()
-                        audioTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) audioTrackList.add(Pair(Triple(grp, i, grp.getFormat(i)), g.isTrackSelected(i))) }
-    
-                        val textTrackList = mutableListOf<Pair<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>, Boolean>>()
-                        textTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) textTrackList.add(Pair(Triple(grp, i, grp.getFormat(i)), g.isTrackSelected(i))) }
-    
-                        val currentParams = exoPlayer.trackSelectionParameters
-                        val hasVideoOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
-                        val hasAudioOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
-                        val hasTextOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
-                        val textDisabled = currentParams.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT)
-    
-                        // Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.Settings, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(10.dp))
-                            Text("Pengaturan Kualitas & Audio", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            val exoPlayer = Media3Manager.getPlayer()
+
+            if (exoPlayer != null) {
+                val tabFocusRequesters = remember { List(4) { FocusRequester() } }
+                val firstOptionFocusRequester = remember { FocusRequester() }
+                val closeSettingsFocusRequester = remember { FocusRequester() }
+
+                LaunchedEffect(Unit) {
+                    for (delayMs in listOf(50L, 120L, 250L, 400L)) {
+                        delay(delayMs)
+                        val targetTab = activeTab.coerceIn(0, 3)
+                        if (runCatching { tabFocusRequesters[targetTab].requestFocus() }.isSuccess) {
+                            break
                         }
-    
-                        // Tabs
-                        Row(
+                    }
+                }
+
+                Dialog(
+                    onDismissRequest = { showSettings = false; activeTab = 0 },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // Use pointerInput instead of clickable so the backdrop never steals D-pad focus
+                            .pointerInput(Unit) {
+                                detectTapGestures {
+                                    showSettings = false
+                                    activeTab = 0
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
-                                .padding(4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .widthIn(min = 320.dp, max = 520.dp)
+                                .fillMaxWidth(0.85f)
+                                .background(BgDialog, RoundedCornerShape(20.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
+                                .padding(24.dp)
+                                .verticalScroll(qScrollState)
+                                .pointerInput(Unit) {
+                                    detectTapGestures { /* consume taps inside dialog panel */ }
+                                }
                         ) {
-                            val tabs = listOf("Video", "Audio", "Subtitle", "Mode VR")
-                            tabs.forEachIndexed { index, label ->
-                                val modeColor = AccentBlue
-                                var isTabFocused by remember { mutableStateOf(false) }
-                                Box(
+                            val videoTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
+                            val audioTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
+                            val textTracks = exoPlayer.currentTracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
+
+                            val videoTrackList = mutableListOf<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>>()
+                            videoTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) videoTrackList.add(Triple(grp, i, grp.getFormat(i))) }
+
+                            val audioTrackList = mutableListOf<Pair<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>, Boolean>>()
+                            audioTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) audioTrackList.add(Pair(Triple(grp, i, grp.getFormat(i)), g.isTrackSelected(i))) }
+
+                            val textTrackList = mutableListOf<Pair<Triple<androidx.media3.common.TrackGroup, Int, androidx.media3.common.Format>, Boolean>>()
+                            textTracks.forEach { g -> val grp = g.mediaTrackGroup; for (i in 0 until grp.length) textTrackList.add(Pair(Triple(grp, i, grp.getFormat(i)), g.isTrackSelected(i))) }
+
+                            val currentParams = exoPlayer.trackSelectionParameters
+                            val hasVideoOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
+                            val hasAudioOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
+                            val hasTextOverride = currentParams.overrides.keys.any { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
+                            val textDisabled = currentParams.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT)
+
+                            val currentTabHasOptions = when (activeTab) {
+                                0 -> true
+                                1 -> audioTrackList.isNotEmpty()
+                                2 -> textTrackList.isNotEmpty()
+                                3 -> true
+                                else -> false
+                            }
+
+                            // Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.Settings, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    "Pengaturan Kualitas & Audio",
+                                    color = Color.White,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { showSettings = false; activeTab = 0 },
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(9.dp))
-                                        .onFocusChanged { isTabFocused = it.isFocused || it.hasFocus }
-                                        .tvFocusRing(RoundedCornerShape(9.dp), color = Color.White, width = 2.dp)
-                                        .background(if (activeTab == index) modeColor.copy(alpha = 0.25f) else if (isTabFocused) Color.White.copy(alpha = 0.12f) else Color.Transparent)
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (activeTab == index) modeColor else Color.Transparent,
-                                            shape = RoundedCornerShape(9.dp)
-                                        )
-                                        .clickable { activeTab = index }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
+                                        .size(32.dp)
+                                        .focusRequester(closeSettingsFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                                                val targetTab = activeTab.coerceIn(0, 3)
+                                                runCatching { tabFocusRequesters[targetTab].requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                            false
+                                        }
+                                        .tvFocusRing(CircleShape)
                                 ) {
-                                    Text(
-                                        label,
-                                        color = if (activeTab == index || isTabFocused) modeColor else Color.White.copy(alpha = 0.6f),
-                                        fontSize = 13.sp,
-                                        fontWeight = if (activeTab == index || isTabFocused) FontWeight.SemiBold else FontWeight.Normal
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Tutup",
+                                        tint = Color.White.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-    
-                        @Composable
-                        fun TrackOptionRow(label: String, isSelected: Boolean, onClick: () -> Unit) {
-                            var isRowFocused by remember { mutableStateOf(false) }
+
+                            // Tabs
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .onFocusChanged { isRowFocused = it.isFocused || it.hasFocus }
-                                    .tvFocusRing(RoundedCornerShape(8.dp), color = Color.White, width = 2.dp)
-                                    .background(if (isSelected) AccentBlue.copy(alpha = 0.18f) else if (isRowFocused) Color.White.copy(alpha = 0.10f) else Color.Transparent)
-                                    .selectable(selected = isSelected, onClick = onClick)
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                                    .padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                                    contentDescription = null,
-                                    tint = if (isSelected) AccentBlue else if (isRowFocused) Color.White else Color.White.copy(alpha = 0.45f),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    label,
-                                    color = if (isSelected || isRowFocused) Color.White else Color.White.copy(alpha = 0.75f),
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-    
-                        when (activeTab) {
-                            0 -> { 
-                                TrackOptionRow("Otomatis (ABR)", isSelected = !hasVideoOverride) {
-                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO).build()
-                                    showSettings = false
-                                }
-                                videoTrackList.forEach { triple ->
-                                    val group = triple.first; val trackIndex = triple.second; val format = triple.third
-                                    val isSelected = hasVideoOverride && currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true
-                                    val label = buildString { if (format.height > 0) append("${format.height}p"); if (format.bitrate > 0) append(" (${format.bitrate / 1000} kbps)"); if (isEmpty()) append("Track ${trackIndex + 1}") }
-                                    TrackOptionRow(label, isSelected) {
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
-                                        showSettings = false
-                                    }
-                                }
-                            }
-                            1 -> { 
-                                if (audioTrackList.isNotEmpty()) {
-                                    TrackOptionRow("Otomatis (Default)", isSelected = !hasAudioOverride) {
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO).build()
-                                        showSettings = false
-                                    }
-                                    audioTrackList.forEach { tuple ->
-                                        val group = tuple.first.first; val trackIndex = tuple.first.second; val format = tuple.first.third
-                                        val isSelected = if (hasAudioOverride) currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true else tuple.second
-                                        val label = buildString { append(format.language?.uppercase() ?: "Audio ${trackIndex + 1}"); if (format.channelCount > 0) append(" (${format.channelCount}ch)"); if (format.bitrate > 0) append(" · ${format.bitrate / 1000}kbps") }
-                                        TrackOptionRow(label, isSelected) {
-                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
-                                            showSettings = false
-                                        }
-                                    }
-                                } else {
-                                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                        Text("Tidak ada pilihan trek audio tambahan", color = Color.Gray, fontSize = 14.sp)
-                                    }
-                                }
-                            }
-                            2 -> {
-                                if (textTrackList.isNotEmpty()) {
-                                    TrackOptionRow("Nonaktif", isSelected = textDisabled) {
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true).build()
-                                        showSettings = false
-                                    }
-                                    textTrackList.forEach { tuple ->
-                                        val group = tuple.first.first; val trackIndex = tuple.first.second; val format = tuple.first.third
-                                        val isSelected = !textDisabled && if (hasTextOverride) currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true else tuple.second
-                                        val label = buildString { append(format.language?.uppercase() ?: "Subtitle ${trackIndex + 1}"); if (!format.label.isNullOrBlank()) append(" · ${format.label}") }
-                                        TrackOptionRow(label, isSelected) {
-                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
-                                            showSettings = false
-                                        }
-                                    }
-                                } else {
-                                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                        Text("Tidak ada pilihan subtitle", color = Color.Gray, fontSize = 14.sp)
-                                    }
-                                }
-                            }
-                            3 -> {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (is360Detected) AccentBlue.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                val tabs = listOf("Video", "Audio", "Subtitle", "Mode VR")
+                                tabs.forEachIndexed { index, label ->
+                                    val modeColor = AccentBlue
+                                    val isSelectedTab = activeTab == index
+                                    var isTabFocused by remember { mutableStateOf(false) }
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .focusRequester(tabFocusRequesters[index])
+                                            .onFocusChanged { isTabFocused = it.isFocused || it.hasFocus }
+                                            .border(
+                                                width = if (isTabFocused) 2.5.dp else if (isSelectedTab) 1.dp else 0.dp,
+                                                color = if (isTabFocused) Color.White else if (isSelectedTab) modeColor else Color.Transparent,
+                                                shape = RoundedCornerShape(9.dp)
+                                            )
+                                            .clip(RoundedCornerShape(9.dp))
+                                            .background(
+                                                when {
+                                                    isTabFocused  -> modeColor.copy(alpha = 0.42f)
+                                                    isSelectedTab -> modeColor.copy(alpha = 0.22f)
+                                                    else          -> Color.Transparent
+                                                }
+                                            )
+                                            .onPreviewKeyEvent { event ->
+                                                if (event.type == KeyEventType.KeyDown) {
+                                                    when (event.key) {
+                                                        Key.DirectionLeft -> {
+                                                            if (index > 0) {
+                                                                activeTab = index - 1
+                                                                runCatching { tabFocusRequesters[index - 1].requestFocus() }
+                                                            }
+                                                            return@onPreviewKeyEvent true
+                                                        }
+                                                        Key.DirectionRight -> {
+                                                            if (index < tabs.lastIndex) {
+                                                                activeTab = index + 1
+                                                                runCatching { tabFocusRequesters[index + 1].requestFocus() }
+                                                            }
+                                                            return@onPreviewKeyEvent true
+                                                        }
+                                                        Key.DirectionDown -> {
+                                                            if (currentTabHasOptions) {
+                                                                runCatching { firstOptionFocusRequester.requestFocus() }
+                                                            }
+                                                            return@onPreviewKeyEvent true
+                                                        }
+                                                        Key.DirectionUp -> {
+                                                            runCatching { closeSettingsFocusRequester.requestFocus() }
+                                                            return@onPreviewKeyEvent true
+                                                        }
+                                                        else -> {}
+                                                    }
+                                                }
+                                                false
+                                            }
+                                            .clickable { activeTab = index }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            if (is360Detected) Icons.Filled.CheckCircle else Icons.Filled.Info,
-                                            contentDescription = null,
-                                            tint = if (is360Detected) AccentBlue else Color.White.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(Modifier.width(8.dp))
                                         Text(
-                                            if (is360Detected) "Format 360° terdeteksi otomatis dari stream video."
-                                            else "Metadata 360° tidak terdeteksi otomatis. Anda tetap dapat mengaktifkan mode VR di bawah ini.",
-                                            color = Color.White.copy(alpha = 0.85f),
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp
+                                            label,
+                                            color = if (isTabFocused) Color.White else if (isSelectedTab) modeColor else Color.White.copy(alpha = 0.65f),
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isSelectedTab || isTabFocused) FontWeight.Bold else FontWeight.Normal
                                         )
                                     }
                                 }
+                            }
 
-                                val vrModes = listOf(
-                                    Pair(VrMode.NORMAL, "2D Standar (Nonaktif)"),
-                                    Pair(VrMode.TOUCH, "Mode Sentuh (Geser Layar 360°)"),
-                                    Pair(VrMode.MOTION, "Mode Sensor (Gyroscope Ponsel)"),
-                                    Pair(VrMode.VR_SPLIT, "Mode VR Box (Layar Terbelah Kiri / Kanan)")
-                                )
-                                vrModes.forEach { (mode, label) ->
-                                    val isSelected = currentVrMode == mode
-                                    TrackOptionRow(label, isSelected) {
-                                        if (mode == VrMode.VR_SPLIT) {
-                                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            @Composable
+                            fun TrackOptionRow(
+                                label: String,
+                                isSelected: Boolean,
+                                isFirst: Boolean = false,
+                                onClick: () -> Unit
+                            ) {
+                                var isRowFocused by remember { mutableStateOf(false) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp)
+                                        .then(if (isFirst) Modifier.focusRequester(firstOptionFocusRequester) else Modifier)
+                                        .onFocusChanged { isRowFocused = it.isFocused || it.hasFocus }
+                                        .border(
+                                            width = if (isRowFocused) 2.5.dp else if (isSelected) 1.dp else 0.dp,
+                                            color = if (isRowFocused) Color.White else if (isSelected) AccentBlue.copy(alpha = 0.5f) else Color.Transparent,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            when {
+                                                isRowFocused -> AccentBlue.copy(alpha = 0.35f)
+                                                isSelected   -> AccentBlue.copy(alpha = 0.18f)
+                                                else         -> Color.Transparent
+                                            }
+                                        )
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp && isFirst) {
+                                                val targetTab = activeTab.coerceIn(0, 3)
+                                                runCatching { tabFocusRequesters[targetTab].requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
+                                            false
                                         }
-                                        currentVrMode = mode
+                                        .selectable(selected = isSelected, onClick = onClick)
+                                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                                        contentDescription = null,
+                                        tint = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        label,
+                                        color = if (isSelected || isRowFocused) Color.White else Color.White.copy(alpha = 0.78f),
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected || isRowFocused) FontWeight.SemiBold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            when (activeTab) {
+                                0 -> {
+                                    TrackOptionRow("Otomatis (ABR)", isSelected = !hasVideoOverride, isFirst = true) {
+                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO).build()
                                         showSettings = false
+                                    }
+                                    videoTrackList.forEach { triple ->
+                                        val group = triple.first; val trackIndex = triple.second; val format = triple.third
+                                        val isSelected = hasVideoOverride && currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true
+                                        val label = buildString { if (format.height > 0) append("${format.height}p"); if (format.bitrate > 0) append(" (${format.bitrate / 1000} kbps)"); if (isEmpty()) append("Track ${trackIndex + 1}") }
+                                        TrackOptionRow(label, isSelected) {
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
+                                            showSettings = false
+                                        }
+                                    }
+                                }
+                                1 -> {
+                                    if (audioTrackList.isNotEmpty()) {
+                                        TrackOptionRow("Otomatis (Default)", isSelected = !hasAudioOverride, isFirst = true) {
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO).build()
+                                            showSettings = false
+                                        }
+                                        audioTrackList.forEach { tuple ->
+                                            val group = tuple.first.first; val trackIndex = tuple.first.second; val format = tuple.first.third
+                                            val isSelected = if (hasAudioOverride) currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true else tuple.second
+                                            val label = buildString { append(format.language?.uppercase() ?: "Audio ${trackIndex + 1}"); if (format.channelCount > 0) append(" (${format.channelCount}ch)"); if (format.bitrate > 0) append(" · ${format.bitrate / 1000}kbps") }
+                                            TrackOptionRow(label, isSelected) {
+                                                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
+                                                showSettings = false
+                                            }
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                            Text("Tidak ada pilihan trek audio tambahan", color = Color.Gray, fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                                2 -> {
+                                    if (textTrackList.isNotEmpty()) {
+                                        TrackOptionRow("Nonaktif", isSelected = textDisabled, isFirst = true) {
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true).build()
+                                            showSettings = false
+                                        }
+                                        textTrackList.forEach { tuple ->
+                                            val group = tuple.first.first; val trackIndex = tuple.first.second; val format = tuple.first.third
+                                            val isSelected = !textDisabled && if (hasTextOverride) currentParams.overrides[group]?.trackIndices?.contains(trackIndex) == true else tuple.second
+                                            val label = buildString { append(format.language?.uppercase() ?: "Subtitle ${trackIndex + 1}"); if (!format.label.isNullOrBlank()) append(" · ${format.label}") }
+                                            TrackOptionRow(label, isSelected) {
+                                                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_TEXT).addOverride(androidx.media3.common.TrackSelectionOverride(group, listOf(trackIndex))).build()
+                                                showSettings = false
+                                            }
+                                        }
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                            Text("Tidak ada pilihan subtitle", color = Color.Gray, fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                                3 -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (is360Detected) AccentBlue.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                if (is360Detected) Icons.Filled.CheckCircle else Icons.Filled.Info,
+                                                contentDescription = null,
+                                                tint = if (is360Detected) AccentBlue else Color.White.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                if (is360Detected) "Format 360° terdeteksi otomatis dari stream video."
+                                                else "Metadata 360° tidak terdeteksi otomatis. Anda tetap dapat mengaktifkan mode VR di bawah ini.",
+                                                color = Color.White.copy(alpha = 0.85f),
+                                                fontSize = 12.sp,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+
+                                    val vrModes = listOf(
+                                        Pair(VrMode.NORMAL, "2D Standar (Nonaktif)"),
+                                        Pair(VrMode.TOUCH, "Mode Sentuh (Geser Layar 360°)"),
+                                        Pair(VrMode.MOTION, "Mode Sensor (Gyroscope Ponsel)"),
+                                        Pair(VrMode.VR_SPLIT, "Mode VR Box (Layar Terbelah Kiri / Kanan)")
+                                    )
+                                    vrModes.forEachIndexed { idx, (mode, label) ->
+                                        val isSelected = currentVrMode == mode
+                                        TrackOptionRow(label, isSelected, isFirst = idx == 0) {
+                                            if (mode == VrMode.VR_SPLIT) {
+                                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                            }
+                                            currentVrMode = mode
+                                            showSettings = false
+                                        }
                                     }
                                 }
                             }
@@ -1738,6 +1951,16 @@ fun VrModeDialog(
     onSelectMode: (VrMode) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val activeModeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        for (delayMs in listOf(50L, 120L, 250L, 400L)) {
+            delay(delayMs)
+            if (runCatching { activeModeFocusRequester.requestFocus() }.isSuccess) {
+                break
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1746,7 +1969,9 @@ fun VrModeDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.72f))
-                .clickable { onDismiss() },
+                .pointerInput(Unit) {
+                    detectTapGestures { onDismiss() }
+                },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -1754,9 +1979,11 @@ fun VrModeDialog(
                     .widthIn(min = 320.dp, max = 500.dp)
                     .fillMaxWidth(0.9f)
                     .background(BgDialog, RoundedCornerShape(20.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
                     .padding(20.dp)
-                    .clickable(enabled = false) {}
+                    .pointerInput(Unit) {
+                        detectTapGestures { /* consume taps inside dialog panel */ }
+                    }
             ) {
                 // Header
                 Row(
@@ -1833,18 +2060,26 @@ fun VrModeDialog(
                 modes.forEach { (mode, icon, badge) ->
                     val isSelected = currentMode == mode
                     var isRowFocused by remember { mutableStateOf(false) }
-                    val borderColor = if (isSelected) AccentBlue else Color.White.copy(alpha = 0.08f)
-                    val bgColor = if (isSelected) AccentBlue.copy(alpha = 0.18f) else if (isRowFocused) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.04f)
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .then(if (isSelected) Modifier.focusRequester(activeModeFocusRequester) else Modifier)
                             .onFocusChanged { isRowFocused = it.isFocused || it.hasFocus }
-                            .tvFocusRing(RoundedCornerShape(14.dp), color = Color.White, width = 2.dp)
-                            .background(bgColor)
-                            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
+                            .border(
+                                width = if (isRowFocused) 2.5.dp else 1.dp,
+                                color = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                when {
+                                    isRowFocused -> AccentBlue.copy(alpha = 0.35f)
+                                    isSelected   -> AccentBlue.copy(alpha = 0.18f)
+                                    else         -> Color.White.copy(alpha = 0.04f)
+                                }
+                            )
                             .clickable {
                                 onSelectMode(mode)
                                 onDismiss()
@@ -1856,7 +2091,7 @@ fun VrModeDialog(
                             modifier = Modifier
                                 .size(38.dp)
                                 .background(
-                                    if (isSelected) AccentBlue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
+                                    if (isSelected || isRowFocused) AccentBlue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f),
                                     RoundedCornerShape(10.dp)
                                 ),
                             contentAlignment = Alignment.Center
@@ -1864,7 +2099,7 @@ fun VrModeDialog(
                             Icon(
                                 icon,
                                 contentDescription = null,
-                                tint = if (isSelected) AccentBlue else Color.White.copy(alpha = 0.8f),
+                                tint = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.8f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -1875,22 +2110,22 @@ fun VrModeDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     mode.title,
-                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
+                                    color = if (isSelected || isRowFocused) Color.White else Color.White.copy(alpha = 0.9f),
                                     fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                                    fontWeight = if (isSelected || isRowFocused) FontWeight.Bold else FontWeight.SemiBold
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            if (isSelected) AccentBlue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.1f),
+                                            if (isSelected || isRowFocused) AccentBlue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.1f),
                                             RoundedCornerShape(6.dp)
                                         )
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         badge,
-                                        color = if (isSelected) AccentBlue else Color.White.copy(alpha = 0.6f),
+                                        color = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.6f),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -1899,7 +2134,7 @@ fun VrModeDialog(
                             Spacer(Modifier.height(3.dp))
                             Text(
                                 mode.description,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = if (isRowFocused) Color.White.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.6f),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
                             )
@@ -1910,7 +2145,7 @@ fun VrModeDialog(
                         Icon(
                             imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
                             contentDescription = null,
-                            tint = if (isSelected) AccentBlue else Color.White.copy(alpha = 0.3f),
+                            tint = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.3f),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1922,7 +2157,10 @@ fun VrModeDialog(
                     onClick = onDismiss,
                     colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .tvFocusRing(RoundedCornerShape(12.dp))
                 ) {
                     Text("Tutup", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }

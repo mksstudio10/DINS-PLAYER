@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Standalone D-Play brand mark (cropped viewport around the monogram) -->
+    <path android:pathData="M26,20 A6.5,6.5 0 0,1 32.5,26.5 L32.5,81.5 A6.5,6.5 0 0,1 26,88 A6.5,6.5 0 0,1 19.5,81.5 L19.5,26.5 A6.5,6.5 0 0,1 26,20 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="26"
+                android:startY="20"
+                android:endX="26"
+                android:endY="88"
+                android:type="linear">
+                <item android:color="#FFFFFFFF" android:offset="0.0" />
+                <item android:color="#FFDCE6F4" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M40,27 A6.5,6.5 0 0,1 50.6,21.5 L83.8,48.3 A7.2,7.2 0 0,1 83.8,59.7 L50.6,86.5 A6.5,6.5 0 0,1 40,81 L40,27 Z M53,41.5 A2.6,2.6 0 0,1 57.1,39.4 L68.8,51.8 A2.6,2.6 0 0,1 68.8,56.2 L57.1,68.6 A2.6,2.6 0 0,1 53,66.5 L53,41.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="40"
+                android:startY="20"
+                android:endX="86"
+                android:endY="88"
+                android:type="linear">
+                <item android:color="#FF38BDF8" android:offset="0.0" />
+                <item android:color="#FF2979FF" android:offset="0.55" />
+                <item android:color="#FF1D4ED8" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
+

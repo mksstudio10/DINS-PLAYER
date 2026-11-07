@@ -90,10 +90,10 @@ private val WALLPAPERS = listOf(
  * `TextMuted` (#616161) fails AA on every surface this app ships, wallpaper or not, so it is out
  * of scope here and tracked separately.
  */
-internal val VEIL_ALPHAS = listOf(0xE6, 0xD9, 0xF2)
+internal val VEIL_ALPHAS = listOf(0xB8, 0xA3, 0xCC)
 
 private val VEIL = Brush.verticalGradient(
-    VEIL_ALPHAS.map { Color(0xFF0A0A0A).copy(alpha = it / 255f) }
+    VEIL_ALPHAS.map { Color(0xFF101622).copy(alpha = it / 255f) }
 )
 
 /**

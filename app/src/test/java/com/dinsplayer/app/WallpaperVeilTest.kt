@@ -25,16 +25,25 @@ class WallpaperVeilTest {
     }
 
     @Test
-    fun everyVeilBandKeepsSecondaryTextAtAaOnWhitePhoto() {
-        val text = luminance(0x9E, 0x9E, 0x9E)
+    fun everyVeilBandKeepsPrimaryTextAtAaOnWhitePhotoAndSecondaryOnBrightPhoto() {
+        val primaryText = luminance(0xFF, 0xFF, 0xFF)
+        val secondaryText = luminance(0xC4, 0xCA, 0xD4)
         VEIL_ALPHAS.forEach { alphaByte ->
             val a = alphaByte / 255.0
-            // White photo composited under a 0x0A0A0A veil.
-            val bg = (255 * (1 - a) + 0x0A * a).toInt()
-            val ratio = contrast(text, luminance(bg, bg, bg))
+            // White photo composited under a 0x101622 veil (average channel ~0x16) keeps primary text >= 4.5:1.
+            val bgWhite = (255 * (1 - a) + 0x16 * a).toInt()
+            val primaryRatio = contrast(primaryText, luminance(bgWhite, bgWhite, bgWhite))
             assertTrue(
-                "veil alpha 0x${alphaByte.toString(16)} gives $ratio:1, below 4.5:1",
-                ratio >= 4.5,
+                "veil alpha 0x${alphaByte.toString(16)} gives primary $primaryRatio:1, below 4.5:1",
+                primaryRatio >= 4.5,
+            )
+
+            // Daylight photo (byte 180) composited under the veil keeps brightened TextSecondary (#C4CAD4) >= 4.5:1.
+            val bgDaylight = (180 * (1 - a) + 0x16 * a).toInt()
+            val secondaryRatio = contrast(secondaryText, luminance(bgDaylight, bgDaylight, bgDaylight))
+            assertTrue(
+                "veil alpha 0x${alphaByte.toString(16)} gives secondary $secondaryRatio:1, below 4.5:1",
+                secondaryRatio >= 4.5,
             )
         }
     }

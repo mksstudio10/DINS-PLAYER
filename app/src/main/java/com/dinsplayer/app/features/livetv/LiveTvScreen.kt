@@ -1,8 +1,11 @@
 package com.dinsplayer.app.features.livetv
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.dinsplayer.app.R
 import com.dinsplayer.app.features.mobile.rememberIsWideNav
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
@@ -431,6 +434,7 @@ private fun ChannelRow(channel: Channel, epgProgram: com.dinsplayer.app.core.epg
                 .background(BgSurface),
             contentAlignment = Alignment.Center
         ) {
+            val defaultLogo = painterResource(R.drawable.ic_default_channel_logo)
             if (channel.logoUrl.isNotBlank()) {
                 AsyncImage(
                     model = coil.request.ImageRequest.Builder(LocalContext.current)
@@ -438,14 +442,19 @@ private fun ChannelRow(channel: Channel, epgProgram: com.dinsplayer.app.core.epg
                         .crossfade(true)
                         .crossfade(200)
                         .build(),
+                    placeholder = defaultLogo,
+                    error = defaultLogo,
+                    fallback = defaultLogo,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(40.dp)
                 )
             } else {
-                Text(
-                    text  = channel.name.take(2).uppercase(),
-                    style = MaterialTheme.typography.labelMedium.copy(color = AccentBlue, fontWeight = FontWeight.Bold)
+                Image(
+                    painter = defaultLogo,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(38.dp)
                 )
             }
         }
@@ -503,6 +512,7 @@ private fun ChannelGridCard(
                 .background(BgSurface),
             contentAlignment = Alignment.Center
         ) {
+            val defaultLogo = painterResource(R.drawable.ic_default_channel_logo)
             if (channel.logoUrl.isNotBlank()) {
                 AsyncImage(
                     model = coil.request.ImageRequest.Builder(LocalContext.current)
@@ -510,6 +520,9 @@ private fun ChannelGridCard(
                         .crossfade(true)
                         .crossfade(200)
                         .build(),
+                    placeholder = defaultLogo,
+                    error = defaultLogo,
+                    fallback = defaultLogo,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
@@ -517,12 +530,13 @@ private fun ChannelGridCard(
                         .padding(6.dp)
                 )
             } else {
-                Text(
-                    text = channel.name.take(2).uppercase(),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        color = AccentBlue,
-                        fontWeight = FontWeight.Bold
-                    )
+                Image(
+                    painter = defaultLogo,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(6.dp)
                 )
             }
         }

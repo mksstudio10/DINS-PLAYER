@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- Broadcast antenna waves above TV frame -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M24,10 L32,17 L40,10"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#FF448AFF" />
+
+    <!-- Outer TV screen body -->
+    <path
+        android:pathData="M14,17 L50,17 A5,5 0 0,1 55,22 L55,44 A5,5 0 0,1 50,49 L14,49 A5,5 0 0,1 9,44 L9,22 A5,5 0 0,1 14,17 Z"
+        android:strokeWidth="1.8"
+        android:strokeColor="#66448AFF">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="32"
+                android:startY="17"
+                android:endX="32"
+                android:endY="49"
+                android:type="linear">
+                <item android:color="#FF1E3050" android:offset="0.0" />
+                <item android:color="#FF132038" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- TV stand base -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M23,53 L41,53"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeColor="#9964748B" />
+
+    <!-- Mini D-Play emblem inside the TV screen: Left stem -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24.2,24.5 A2.2,2.2 0 0,1 26.4,26.7 L26.4,39.3 A2.2,2.2 0 0,1 24.2,41.5 A2.2,2.2 0 0,1 22.0,39.3 L22.0,26.7 A2.2,2.2 0 0,1 24.2,24.5 Z" />
+
+    <!-- Mini D-Play emblem inside the TV screen: Right play wing -->
+    <path
+        android:fillColor="#FF38BDF8"
+        android:fillType="evenOdd"
+        android:pathData="M29.2,26.8 A2.2,2.2 0 0,1 32.7,25.0 L42.2,31.2 A2.4,2.4 0 0,1 42.2,34.8 L32.7,41.0 A2.2,2.2 0 0,1 29.2,39.2 L29.2,26.8 Z M33.4,30.2 L38.0,33.0 L33.4,35.8 Z" />
+</vector>
+

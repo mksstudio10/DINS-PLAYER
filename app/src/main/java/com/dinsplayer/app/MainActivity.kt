@@ -1,5 +1,6 @@
 package com.dinsplayer.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
@@ -8,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.dinsplayer.app.core.player.Media3Manager
 import com.dinsplayer.app.features.mobile.MobileAppScreen
+import com.dinsplayer.app.features.playlist.PlaylistImport
 import com.dinsplayer.app.ui.theme.DINSPLAYERTheme
 
 class MainActivity : AppCompatActivity() {
@@ -29,11 +31,20 @@ class MainActivity : AppCompatActivity() {
         )
         Media3Manager.init(applicationContext)
 
+        // A recreated activity gets the same launch intent back; queue it only on a fresh start.
+        if (savedInstanceState == null) PlaylistImport.offer(intent)
+
         setContent {
             DINSPLAYERTheme {
                 MobileAppScreen()
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        PlaylistImport.offer(intent)
     }
 
     override fun onDestroy() {

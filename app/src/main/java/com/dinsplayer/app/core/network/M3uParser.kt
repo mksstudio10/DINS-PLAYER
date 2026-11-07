@@ -27,9 +27,8 @@ object M3uParser {
             .callTimeout(150, TimeUnit.SECONDS)
     ).build()
 
+    // Tried after the global and premium agents in UserAgents.fetchChain.
     private val IPTV_USER_AGENTS = listOf(
-        // Browser UAs first: CDN/WAF (Akamai, Cloudflare) blocks non-browser UAs
-        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.60 Mobile Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         // IPTV app UAs: some servers whitelist these
         "TiviMate",
@@ -41,7 +40,7 @@ object M3uParser {
     )
 
     private suspend fun fetchWithFallback(url: String, specificUa: String? = null): Pair<String, String>? = withContext(Dispatchers.IO) {
-        val agentsToTry = if (!specificUa.isNullOrBlank()) listOf(specificUa) + IPTV_USER_AGENTS.filter { it != specificUa } else IPTV_USER_AGENTS
+        val agentsToTry = UserAgents.fetchChain(specificUa, IPTV_USER_AGENTS)
 
         for (ua in agentsToTry) {
             ensureActive()
@@ -67,7 +66,7 @@ object M3uParser {
                     if (resp.isSuccessful) {
                         val contentLength = resp.body?.contentLength() ?: -1L
                         if (contentLength > 50_000_000L) {
-                            Log.w(TAG, "Playlist too large ($contentLength bytes), skipping UA: $ua")
+                            Log.w(TAG, "Playlist too large ($contentLength bytes), skipping this UA")
                             return@use
                         }
                         val body = resp.body?.string() ?: ""
@@ -109,7 +108,8 @@ object M3uParser {
                 val result = fetchWithFallback(playlist.source, customUa)
                     ?: throw Exception("Gagal mengambil playlist. URL tidak bisa diakses atau format tidak didukung.")
                 content = result.first
-                fallbackUa = result.second.takeIf { it.isNotBlank() }
+                // The premium agent only unlocks the download; it must not be copied onto channels.
+                fallbackUa = result.second.takeIf { it.isNotBlank() && !UserAgents.isPremium(it) }
             }
             playlist.source.startsWith("content://") -> {
                 onProgress("Membaca file playlist...")

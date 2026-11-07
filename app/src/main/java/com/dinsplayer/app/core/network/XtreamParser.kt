@@ -28,7 +28,6 @@ object XtreamParser {
         val username = Uri.encode(playlist.username)
         val password = Uri.encode(playlist.password)
         val ua = playlist.userAgent?.takeIf { it.isNotBlank() && it != "EMPTY_UA" }
-            ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.60 Mobile Safari/537.36"
         
         // 1. Fetch categories
         onProgress("Mengambil daftar kategori Xtream...")
@@ -43,7 +42,7 @@ object XtreamParser {
         // 2. Fetch channels
         onProgress("Mengambil daftar saluran Xtream...")
         val url = "$server/player_api.php?username=$username&password=$password&action=get_live_streams"
-        val body = fetchJsonArray(url, ua)
+        val body = fetchJsonArrayWithFallback(url, ua)
 
         val channels = mutableListOf<Channel>()
         val totalChannels = body.length()
@@ -86,10 +85,10 @@ object XtreamParser {
         server: String,
         username: String,
         password: String,
-        ua: String
+        ua: String?
     ): List<XtreamCategory> {
         val url = "$server/player_api.php?username=$username&password=$password&action=get_live_categories"
-        val arr = fetchJsonArray(url, ua)
+        val arr = fetchJsonArrayWithFallback(url, ua)
         val list = mutableListOf<XtreamCategory>()
         for (i in 0 until arr.length()) {
             val obj = arr.optJSONObject(i) ?: continue
@@ -101,12 +100,33 @@ object XtreamParser {
         return list
     }
 
+    private class HttpRejectedException(code: Int) : Exception("HTTP $code: Server menolak request")
+
+    /**
+     * Walks the global, global 2 and premium agents. Only a rejected request or a network
+     * failure moves to the next agent; a bad login or a disabled account is a real answer from
+     * the panel and is thrown straight away.
+     */
+    private fun fetchJsonArrayWithFallback(url: String, preferredUa: String?): JSONArray {
+        var last: Exception? = null
+        for (ua in UserAgents.fetchChain(preferredUa)) {
+            try {
+                return fetchJsonArray(url, ua)
+            } catch (e: HttpRejectedException) {
+                last = e
+            } catch (e: java.io.IOException) {
+                last = e
+            }
+        }
+        throw last ?: Exception("Server tidak merespons")
+    }
+
     private fun fetchJsonArray(url: String, ua: String): JSONArray {
         val reqBuilder = Request.Builder().url(url).header("User-Agent", ua)
         val response = client.newCall(reqBuilder.build()).execute()
         if (!response.isSuccessful) {
             response.body?.close()
-            throw Exception("HTTP ${response.code}: Server menolak request")
+            throw HttpRejectedException(response.code)
         }
         val responseBody = response.use { it.body?.string() } ?: throw Exception("Respons server kosong")
         val parsed = org.json.JSONTokener(responseBody).nextValue()

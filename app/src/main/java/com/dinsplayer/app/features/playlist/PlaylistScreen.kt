@@ -1,12 +1,20 @@
 package com.dinsplayer.app.features.playlist
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -36,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,7 +62,11 @@ import com.dinsplayer.app.core.network.FallbackDns
 import kotlinx.coroutines.launch
 
 @Composable
-fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
+fun PlaylistScreen(
+    importUri: android.net.Uri? = null,
+    onImportConsumed: () -> Unit = {},
+    onPlaylistSelected: (Long) -> Unit = {},
+) {
     val context = LocalContext.current
     val dao = remember { AppDatabase.get(context).playlistDao() }
     val scope = rememberCoroutineScope()
@@ -61,11 +74,45 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
     val playlists by dao.observeAll().collectAsState(initial = emptyList())
     var showAddDialog by remember { mutableStateOf(false) }
     var playlistToEdit by remember { mutableStateOf<Playlist?>(null) }
+    // Copied out of the shared holder so the form keeps its file after the holder is cleared.
+    var dialogImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    LaunchedEffect(importUri) {
+        if (importUri != null) {
+            playlistToEdit = null
+            dialogImportUri = importUri
+            showAddDialog = true
+            onImportConsumed()
+        }
+    }
     var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     // Guard against double-fire from D-pad KEYDOWN+KEYUP both triggering onClick
     var isSaving by remember { mutableStateOf(false) }
+
+    val isLandscape = rememberIsWideNav()
+    var isAddTriggered by remember { mutableStateOf(false) }
+    val isAddActive = isAddTriggered || (showAddDialog && playlistToEdit == null)
+    val addIconRotation by animateFloatAsState(
+        targetValue = if (isAddActive) 135f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "addIconRotation"
+    )
+    val triggerAddPlaylist: () -> Unit = {
+        if (!isAddTriggered && !showAddDialog) {
+            isAddTriggered = true
+            scope.launch {
+                delay(85L)
+                playlistToEdit = null
+                showAddDialog = true
+                isAddTriggered = false
+            }
+        }
+    }
 
     val filteredPlaylists = remember(playlists, searchQuery) {
         if (searchQuery.isBlank()) playlists
@@ -104,7 +151,7 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
                     Text("Batal")
                 }
             },
-            containerColor = BgElevated,
+            containerColor = BgDialog,
             titleContentColor = TextPrimary,
             textContentColor = TextSecondary
         )
@@ -158,23 +205,49 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        var isAddHeaderFocused by remember { mutableStateOf(false) }
-                        IconButton(
-                            onClick = { showAddDialog = true; playlistToEdit = null },
-                            modifier = Modifier
-                                .size(40.dp)
-                                .onFocusChanged { isAddHeaderFocused = it.isFocused || it.hasFocus }
-                                .border(
-                                    width = if (isAddHeaderFocused) 2.5.dp else 0.dp,
-                                    color = if (isAddHeaderFocused) Color.White else Color.Transparent,
-                                    shape = CircleShape
+                        if (isLandscape) {
+                            var isAddHeaderFocused by remember { mutableStateOf(false) }
+                            val headerAddInteraction = remember { MutableInteractionSource() }
+                            val isHeaderAddPressed by headerAddInteraction.collectIsPressedAsState()
+                            val headerAddScale by animateFloatAsState(
+                                targetValue = when {
+                                    isHeaderAddPressed -> 0.84f
+                                    isAddTriggered -> 1.18f
+                                    else -> 1f
+                                },
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                ),
+                                label = "headerAddScale"
+                            )
+                            IconButton(
+                                onClick = triggerAddPlaylist,
+                                interactionSource = headerAddInteraction,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .graphicsLayer {
+                                        scaleX = headerAddScale
+                                        scaleY = headerAddScale
+                                    }
+                                    .onFocusChanged { isAddHeaderFocused = it.isFocused || it.hasFocus }
+                                    .border(
+                                        width = if (isAddHeaderFocused) 2.5.dp else 0.dp,
+                                        color = if (isAddHeaderFocused) Color.White else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .background(
+                                        if (isAddHeaderFocused) Color.White.copy(alpha = 0.25f) else Color.Transparent,
+                                        CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "Tambah Playlist",
+                                    tint = if (isAddHeaderFocused) Color.White else TextSecondary,
+                                    modifier = Modifier.graphicsLayer { rotationZ = addIconRotation }
                                 )
-                                .background(
-                                    if (isAddHeaderFocused) Color.White.copy(alpha = 0.25f) else Color.Transparent,
-                                    CircleShape
-                                )
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Tambah Playlist", tint = if (isAddHeaderFocused) Color.White else TextSecondary)
+                            }
                         }
                         if (playlists.isNotEmpty()) {
                             var isSearchFocused by remember { mutableStateOf(false) }
@@ -204,7 +277,7 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
                         Spacer(Modifier.height(16.dp))
                         var isEmptyBtnFocused by remember { mutableStateOf(false) }
                         Button(
-                            onClick = { showAddDialog = true; playlistToEdit = null },
+                            onClick = triggerAddPlaylist,
                             modifier = Modifier
                                 .onFocusChanged { isEmptyBtnFocused = it.isFocused || it.hasFocus }
                                 .border(
@@ -229,7 +302,12 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = if (isLandscape) 12.dp else 88.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(filteredPlaylists, key = { it.id }) { playlist ->
@@ -245,24 +323,51 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
             }
         }
 
-        // FAB — bottom-left per design spec
-        var isFabFocused by remember { mutableStateOf(false) }
-        FloatingActionButton(
-            onClick  = { showAddDialog = true; playlistToEdit = null },
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 20.dp, bottom = 20.dp)
-                .onFocusChanged { isFabFocused = it.isFocused || it.hasFocus }
-                .border(
-                    width = if (isFabFocused) 3.5.dp else 0.dp,
-                    color = if (isFabFocused) Color.White else Color.Transparent,
-                    shape = CircleShape
+        // FAB — bottom-left in portrait mode only
+        if (!isLandscape) {
+            var isFabFocused by remember { mutableStateOf(false) }
+            val fabInteraction = remember { MutableInteractionSource() }
+            val isFabPressed by fabInteraction.collectIsPressedAsState()
+            val fabScale by animateFloatAsState(
+                targetValue = when {
+                    isFabPressed -> 0.86f
+                    isAddTriggered -> 1.15f
+                    else -> 1f
+                },
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
                 ),
-            containerColor = if (isFabFocused) Color(0xFF2563EB) else AccentBlue,
-            contentColor   = Color.White,
-            shape          = CircleShape,
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = "Tambah playlist", modifier = Modifier.size(28.dp))
+                label = "fabScale"
+            )
+            FloatingActionButton(
+                onClick  = triggerAddPlaylist,
+                interactionSource = fabInteraction,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 20.dp, bottom = 20.dp)
+                    .graphicsLayer {
+                        scaleX = fabScale
+                        scaleY = fabScale
+                    }
+                    .onFocusChanged { isFabFocused = it.isFocused || it.hasFocus }
+                    .border(
+                        width = if (isFabFocused) 3.5.dp else 0.dp,
+                        color = if (isFabFocused) Color.White else Color.Transparent,
+                        shape = CircleShape
+                    ),
+                containerColor = if (isFabFocused) Color(0xFF2563EB) else AccentBlue,
+                contentColor   = Color.White,
+                shape          = CircleShape,
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "Tambah playlist",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer { rotationZ = addIconRotation }
+                )
+            }
         }
     }
 
@@ -274,7 +379,8 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
             AddPlaylistDialog(
                 playlistToEdit = playlistToEdit,
                 existingPlaylists = playlists,
-                onDismiss = { showAddDialog = false; playlistToEdit = null; isSaving = false },
+                initialImportUri = dialogImportUri,
+                onDismiss = { showAddDialog = false; playlistToEdit = null; isSaving = false; dialogImportUri = null },
                 onAdd     = { newPlaylist ->
                     if (isSaving) return@AddPlaylistDialog
                     isSaving = true
@@ -295,12 +401,15 @@ fun PlaylistScreen(onPlaylistSelected: (Long) -> Unit = {}) {
                     }
                     showAddDialog = false
                     playlistToEdit = null
+                    dialogImportUri = null
                 }
             )
         }
     }
 }
 
+
+private const val MAX_PLAYLIST_BYTES = 20L * 1024 * 1024
 
 @Composable
 private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () -> Unit, onToggle: () -> Unit, onOpen: () -> Unit) {
@@ -485,7 +594,13 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
 }
 
 @Composable
-private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List<Playlist>, onDismiss: () -> Unit, onAdd: (Playlist) -> Unit) {
+private fun AddPlaylistDialog(
+    playlistToEdit: Playlist?,
+    existingPlaylists: List<Playlist>,
+    initialImportUri: android.net.Uri? = null,
+    onDismiss: () -> Unit,
+    onAdd: (Playlist) -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedType by remember { mutableIntStateOf(if (playlistToEdit?.type == PlaylistType.XTREAM) 1 else 0) }
@@ -521,9 +636,7 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
 
-    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
+    fun importFromUri(uri: android.net.Uri?) {
         if (uri != null) {
             coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
@@ -544,7 +657,20 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
 
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         destFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            // Anything can arrive as octet-stream, including a video. Cap the copy
+                            // so a wrong file cannot fill internal storage.
+                            val buffer = ByteArray(8 * 1024)
+                            var total = 0L
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                if (total > MAX_PLAYLIST_BYTES) {
+                                    destFile.delete()
+                                    throw java.io.IOException("ukuran file melebihi 20 MB, ini bukan file playlist")
+                                }
+                                output.write(buffer, 0, read)
+                            }
                         }
                     }
 
@@ -575,6 +701,13 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
             }
         }
     }
+
+    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri -> importFromUri(uri) }
+
+    // A file opened from another app arrives here already chosen.
+    LaunchedEffect(initialImportUri) { importFromUri(initialImportUri) }
 
     fun handlePaste() {
         clipboardManager.getText()?.text?.let {
@@ -784,6 +917,29 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
         }
     }
 
+    var dialogEntered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        dialogEntered = true
+    }
+    val dialogScale by animateFloatAsState(
+        targetValue = if (dialogEntered) 1f else 0.88f,
+        animationSpec = spring(
+            dampingRatio = 0.78f,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "dialogScale"
+    )
+    val dialogAlpha by animateFloatAsState(
+        targetValue = if (dialogEntered) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing),
+        label = "dialogAlpha"
+    )
+    val dialogTranslateY by animateFloatAsState(
+        targetValue = if (dialogEntered) 0f else 24f,
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+        label = "dialogTranslateY"
+    )
+
     // decorFitsSystemWindows = false: the dialog owns a separate window, so the activity's
     // adjustResize never reaches it. With decor fitting on, WindowInsets.ime reads 0 inside the
     // dialog and imePadding does nothing; the keyboard then covers the Simpan/Batal row.
@@ -796,7 +952,7 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
     ) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = BgElevated,
+            color = BgDialog,
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .padding(vertical = 16.dp)
@@ -804,6 +960,12 @@ private fun AddPlaylistDialog(playlistToEdit: Playlist?, existingPlaylists: List
                 // ime, nav bar, status bar, and cutout in one. The keyboard shrinks the viewport
                 // instead of covering the buttons.
                 .windowInsetsPadding(WindowInsets.safeDrawing)
+                .graphicsLayer {
+                    scaleX = dialogScale
+                    scaleY = dialogScale
+                    alpha = dialogAlpha
+                    translationY = dialogTranslateY
+                }
         ) {
             // Xtream mode stacks three fields, the UA block, and the test result: taller than a
             // 640dp screen, and taller still with the keyboard up. LiveTV/player use the same shape.

@@ -67,8 +67,6 @@ import com.dinsplayer.app.features.playlist.PlaylistScreen
 import com.dinsplayer.app.features.setelan.SetelanScreen
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.dinsplayer.app.ui.theme.AccentBlue
@@ -143,6 +141,12 @@ fun MobileAppScreen() {
         com.dinsplayer.app.core.epg.EpgManager.syncEpgs(urls)
     }
 
+    // A playlist file opened from another app: jump to the Playlist tab, which opens the form.
+    val importUri by com.dinsplayer.app.features.playlist.PlaylistImport.pending.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(importUri) {
+        if (importUri != null) selectedTab = TAB_PLAYLIST
+    }
+
     val onTabSelected: (Int) -> Unit = { index ->
         if (index == TAB_LIVETV && !hasActivePlaylist) {
             selectedTab = TAB_PLAYLIST
@@ -205,6 +209,8 @@ fun MobileAppScreen() {
                             TAB_LOKAL    -> LokalScreen(firstFocusRequester = lokalFocusRequester)
                             TAB_LIVETV   -> LiveTvScreen(initialPlaylistId = selectedPlaylistId)
                             TAB_PLAYLIST -> PlaylistScreen(
+                                importUri = importUri,
+                                onImportConsumed = { com.dinsplayer.app.features.playlist.PlaylistImport.consume() },
                                 onPlaylistSelected = { playlistId: Long ->
                                     selectedPlaylistId = playlistId
                                     selectedTab = TAB_LIVETV
@@ -237,49 +243,55 @@ private fun DinsBottomNav(
     hasLiveTv: Boolean,
     onTabSelected: (Int) -> Unit,
 ) {
-    val topBorderColor = Color.White.copy(alpha = 0.10f)
-    NavigationBar(
-        containerColor = Color(0xCC050A0F),
-        tonalElevation = 0.dp,
-        windowInsets   = WindowInsets(0),
+    val navShape = RoundedCornerShape(24.dp)
+    Box(
         modifier = Modifier
+            .fillMaxWidth()
             .navigationBarsPadding()
-            .drawBehind {
-                drawLine(
-                    color = topBorderColor,
-                    start = Offset(0f, 0f),
-                    end   = Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        NavigationBar(
+            containerColor = Color(0xD9121A2B),
+            tonalElevation = 0.dp,
+            windowInsets   = WindowInsets(0),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(70.dp)
+                .clip(navShape)
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.14f),
+                    shape = navShape
+                )
+        ) {
+            navItems.forEachIndexed { index, item ->
+                val selected = selectedIndex == index
+                val isLiveTv = index == TAB_LIVETV
+                val enabled  = !isLiveTv || hasLiveTv
+
+                NavigationBarItem(
+                    selected  = selected,
+                    enabled   = enabled,
+                    onClick   = { onTabSelected(index) },
+                    icon = {
+                        Icon(
+                            imageVector        = if (selected) item.iconSelected else item.iconUnselected,
+                            contentDescription = item.label,
+                        )
+                    },
+                    label     = { Text(text = item.label, fontSize = 11.sp) },
+                    colors    = NavigationBarItemDefaults.colors(
+                        selectedIconColor   = ElectricBlue,
+                        selectedTextColor   = ElectricBlue,
+                        unselectedIconColor = if (enabled) NavUnselected else NavUnselected.copy(alpha = 0.3f),
+                        unselectedTextColor = if (enabled) NavUnselected else NavUnselected.copy(alpha = 0.3f),
+                        disabledIconColor   = NavUnselected.copy(alpha = 0.3f),
+                        disabledTextColor   = NavUnselected.copy(alpha = 0.3f),
+                        indicatorColor      = ElectricBlue.copy(alpha = 0.15f),
+                    ),
+                    alwaysShowLabel = true,
                 )
             }
-    ) {
-        navItems.forEachIndexed { index, item ->
-            val selected = selectedIndex == index
-            val isLiveTv = index == TAB_LIVETV
-            val enabled  = !isLiveTv || hasLiveTv
-
-            NavigationBarItem(
-                selected  = selected,
-                enabled   = enabled,
-                onClick   = { onTabSelected(index) },
-                icon = {
-                    Icon(
-                        imageVector        = if (selected) item.iconSelected else item.iconUnselected,
-                        contentDescription = item.label,
-                    )
-                },
-                label     = { Text(text = item.label) },
-                colors    = NavigationBarItemDefaults.colors(
-                    selectedIconColor   = ElectricBlue,
-                    selectedTextColor   = ElectricBlue,
-                    unselectedIconColor = if (enabled) NavUnselected else NavUnselected.copy(alpha = 0.3f),
-                    unselectedTextColor = if (enabled) NavUnselected else NavUnselected.copy(alpha = 0.3f),
-                    disabledIconColor   = NavUnselected.copy(alpha = 0.3f),
-                    disabledTextColor   = NavUnselected.copy(alpha = 0.3f),
-                    indicatorColor      = Color.Transparent,
-                ),
-                alwaysShowLabel = true,
-            )
         }
     }
 }
@@ -291,15 +303,17 @@ private fun DinsRailNav(
     onTabSelected: (Int) -> Unit,
     onNavigateRight: (() -> Boolean)? = null,
 ) {
+    val railShape = RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp)
     Column(
         modifier = Modifier
             .width(96.dp)
             .fillMaxHeight()
-            .background(Color(0xCC050A0F))
+            .clip(railShape)
+            .background(Color(0xD9121A2B), railShape)
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.10f),
-                shape = RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+                color = Color.White.copy(alpha = 0.14f),
+                shape = railShape
             )
             .statusBarsPadding()
             .padding(vertical = 8.dp),
