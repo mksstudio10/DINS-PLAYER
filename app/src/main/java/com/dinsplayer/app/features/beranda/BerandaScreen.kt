@@ -12,8 +12,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,7 +55,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -81,7 +81,9 @@ import com.dinsplayer.app.features.player.PlayerScreen
 import com.dinsplayer.app.ui.theme.*
 
 @Composable
-fun BerandaScreen() {
+fun BerandaScreen(
+    firstFocusRequester: FocusRequester? = null,
+) {
     val context = LocalContext.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var form by remember { mutableStateOf(StreamTestForm()) }
@@ -214,6 +216,7 @@ fun BerandaScreen() {
                 Spacer(modifier = Modifier.height(10.dp))
                 StreamFormContent(
                     form = form,
+                    urlFocusRequester = firstFocusRequester,
                     playFocusRequester = playFocusRequester,
                     onFormChange = { form = it },
                     onPaste = {
@@ -354,6 +357,7 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun StreamFormContent(
     form: StreamTestForm,
+    urlFocusRequester: FocusRequester? = null,
     playFocusRequester: FocusRequester,
     onFormChange: (StreamTestForm) -> Unit,
     onPaste: () -> Unit,
@@ -369,6 +373,7 @@ private fun StreamFormContent(
             value = form.url,
             onValueChange = { onFormChange(form.copy(url = it)) },
             placeholder = "Tautan Stream",
+            firstFocusRequester = urlFocusRequester,
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     IconButton(
@@ -614,14 +619,17 @@ private fun PillTextField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
+    firstFocusRequester: FocusRequester? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
 ) {
+    val isTouchMode = LocalInputModeManager.current.inputMode == InputMode.Touch
     var isFocused by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val inputFocusRequester = remember { FocusRequester() }
-    val rowFocusRequester = remember { FocusRequester() }
+    val localRowFocusRequester = remember { FocusRequester() }
+    val rowFocusRequester = firstFocusRequester ?: localRowFocusRequester
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     var inputHadFocus by remember { mutableStateOf(false) }
     var restoreRowFocus by remember { mutableStateOf(false) }
@@ -634,23 +642,26 @@ private fun PillTextField(
         }
     }
 
-    // Fokus ke input dicoba berulang; node BasicTextField baru terpasang setelah recomposition.
-    // Jika tetap gagal, mode edit dibatalkan agar field tidak macet.
+    // Jika pengguna beralih ke mode sentuh, matikan state D-pad isEditing agar tidak menghalangi.
+    LaunchedEffect(isTouchMode) {
+        if (isTouchMode && isEditing) {
+            isEditing = false
+        }
+    }
+
+    // Mode TV/D-pad: coba fokus ke BasicTextField setelah terpasang, verifikasi lewat inputHadFocus.
     LaunchedEffect(isEditing) {
-        if (isEditing) {
+        if (isEditing && !isTouchMode) {
             inputHadFocus = false
-            var focused = false
-            for (wait in listOf(40L, 100L, 200L)) {
+            for (wait in listOf(16L, 50L, 120L, 250L)) {
                 delay(wait)
-                if (runCatching { inputFocusRequester.requestFocus() }.isSuccess) {
-                    focused = true
-                    break
-                }
+                runCatching { inputFocusRequester.requestFocus() }
+                delay(16L)
+                if (inputHadFocus) break
             }
-            if (focused) {
-                delay(80)
+            if (inputHadFocus) {
                 keyboardController?.show()
-                delay(150)
+                delay(120)
                 runCatching { bringIntoViewRequester.bringIntoView() }
             } else {
                 isEditing = false
@@ -674,123 +685,167 @@ private fun PillTextField(
             .padding(start = 16.dp, end = if (trailingIcon != null) 6.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = 52.dp)
-                .then(
-                    if (!isEditing) {
-                        Modifier
-                            .focusRequester(rowFocusRequester)
-                            .onFocusChanged { isFocused = it.isFocused }
-                            .focusable()
-                            .clickable { isEditing = true }
+        if (isTouchMode) {
+            // Mode sentuh: render BasicTextField langsung agar ketukan langsung membuka keyboard & bisa mengetik.
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onDone = {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                    }
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 52.dp)
+                    .focusRequester(rowFocusRequester)
+                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+                decorationBox = @Composable { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 52.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (value.isEmpty()) {
+                            Text(
+                                text = placeholder,
+                                style = TextStyle(color = TextMuted, fontSize = 14.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        } else {
+            // Mode TV/D-pad: navigasi dengan satu focus target; tekan OK/Enter baru membuka keyboard.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 52.dp)
+                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                    .then(
+                        if (!isEditing) {
+                            Modifier
+                                .focusRequester(rowFocusRequester)
+                                .clickable { isEditing = true }
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.DirectionCenter, Key.Enter -> {
+                                                isEditing = true
+                                                true
+                                            }
+                                            Key.DirectionDown -> {
+                                                focusManager.moveFocus(FocusDirection.Down)
+                                                true
+                                            }
+                                            Key.DirectionUp -> {
+                                                focusManager.moveFocus(FocusDirection.Up)
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
+                        } else Modifier
+                    ),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (isEditing) {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onDone = {
+                                isEditing = false
+                                keyboardController?.hide()
+                                restoreRowFocus = true
+                            }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 52.dp)
+                            .focusRequester(inputFocusRequester)
+                            .onFocusChanged {
+                                if (it.isFocused || it.hasFocus) {
+                                    inputHadFocus = true
+                                } else if (inputHadFocus) {
+                                    isEditing = false
+                                    keyboardController?.hide()
+                                }
+                            }
                             .onPreviewKeyEvent { event ->
                                 if (event.type == KeyEventType.KeyDown) {
                                     when (event.key) {
-                                        Key.DirectionCenter, Key.Enter -> {
-                                            isEditing = true
+                                        Key.Back -> {
+                                            isEditing = false
+                                            keyboardController?.hide()
+                                            restoreRowFocus = true
                                             true
                                         }
                                         Key.DirectionDown -> {
+                                            isEditing = false
+                                            keyboardController?.hide()
                                             focusManager.moveFocus(FocusDirection.Down)
                                             true
                                         }
                                         Key.DirectionUp -> {
+                                            isEditing = false
+                                            keyboardController?.hide()
                                             focusManager.moveFocus(FocusDirection.Up)
                                             true
                                         }
                                         else -> false
                                     }
                                 } else false
-                            }
-                    } else {
-                        // Ketukan di area kosong baris tetap mengembalikan fokus ke input.
-                        Modifier.pointerInput(Unit) {
-                            detectTapGestures {
-                                runCatching { inputFocusRequester.requestFocus() }
-                                keyboardController?.show()
-                            }
-                        }
-                    }
-                ),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (isEditing) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                    ),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                        onDone = {
-                            isEditing = false
-                            keyboardController?.hide()
-                            restoreRowFocus = true
-                        }
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(inputFocusRequester)
-                        .onFocusChanged {
-                            if (it.isFocused || it.hasFocus) {
-                                inputHadFocus = true
-                            } else if (inputHadFocus) {
-                                isEditing = false
-                                keyboardController?.hide()
-                            }
-                        }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                when (event.key) {
-                                    Key.Back -> {
-                                        isEditing = false
-                                        keyboardController?.hide()
-                                        restoreRowFocus = true
-                                        true
-                                    }
-                                    Key.DirectionDown -> {
-                                        isEditing = false
-                                        keyboardController?.hide()
-                                        focusManager.moveFocus(FocusDirection.Down)
-                                        true
-                                    }
-                                    Key.DirectionUp -> {
-                                        isEditing = false
-                                        keyboardController?.hide()
-                                        focusManager.moveFocus(FocusDirection.Up)
-                                        true
-                                    }
-                                    else -> false
+                            },
+                        decorationBox = @Composable { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 52.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (value.isEmpty()) {
+                                    Text(
+                                        text = placeholder,
+                                        style = TextStyle(color = TextMuted, fontSize = 14.sp)
+                                    )
                                 }
-                            } else false
-                        },
-                    decorationBox = @Composable { innerTextField ->
-                        if (value.isEmpty()) {
-                            Text(
-                                text = placeholder,
-                                style = TextStyle(color = TextMuted, fontSize = 14.sp)
-                            )
+                                innerTextField()
+                            }
                         }
-                        innerTextField()
-                    }
-                )
-            } else {
-                Text(
-                    text = if (value.isNotEmpty()) value else placeholder,
-                    style = TextStyle(
-                        color = if (value.isNotEmpty()) Color.White else TextMuted,
-                        fontSize = 14.sp
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    )
+                } else {
+                    Text(
+                        text = if (value.isNotEmpty()) value else placeholder,
+                        style = TextStyle(
+                            color = if (value.isNotEmpty()) Color.White else TextMuted,
+                            fontSize = 14.sp
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
 

@@ -176,6 +176,7 @@ fun MobileAppScreen() {
                     .fillMaxSize()
                     .padding(bottom = innerPadding.calculateBottomPadding())
             ) {
+                val berandaFocusRequester = remember { FocusRequester() }
                 val lokalFocusRequester = remember { FocusRequester() }
                 val setelanFocusRequester = remember { FocusRequester() }
 
@@ -186,6 +187,7 @@ fun MobileAppScreen() {
                         onTabSelected = onTabSelected,
                         onNavigateRight = {
                             when (effectiveTab) {
+                                TAB_BERANDA -> runCatching { berandaFocusRequester.requestFocus() }.isSuccess
                                 TAB_LOKAL   -> runCatching { lokalFocusRequester.requestFocus() }.isSuccess
                                 TAB_SETELAN -> runCatching { setelanFocusRequester.requestFocus() }.isSuccess
                                 else        -> false
@@ -205,7 +207,7 @@ fun MobileAppScreen() {
                         label = "tab"
                     ) { tab ->
                         when (tab) {
-                            TAB_BERANDA  -> BerandaScreen()
+                            TAB_BERANDA  -> BerandaScreen(firstFocusRequester = berandaFocusRequester)
                             TAB_LOKAL    -> LokalScreen(firstFocusRequester = lokalFocusRequester)
                             TAB_LIVETV   -> LiveTvScreen(initialPlaylistId = selectedPlaylistId)
                             TAB_PLAYLIST -> PlaylistScreen(
