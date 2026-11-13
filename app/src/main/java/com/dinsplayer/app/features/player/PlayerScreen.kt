@@ -60,6 +60,7 @@ import androidx.media3.common.text.CueGroup
 import android.text.Layout
 import android.graphics.Typeface
 import com.dinsplayer.app.core.player.Media3Manager
+import com.dinsplayer.app.features.multistream.MultiPlayerActivity
 import com.dinsplayer.app.data.KEY_AUDIO_SYNC
 import com.dinsplayer.app.data.KEY_BUFFER_SIZE
 import com.dinsplayer.app.data.KEY_HW_DECODING
@@ -147,6 +148,20 @@ fun PlayerScreen(
     val normalizedIndex by com.dinsplayer.app.core.epg.EpgManager.normalizedIndex.collectAsState()
     
     val activeChannel = remember(activeChannelId, channels) { channels.find { it.id == activeChannelId } }
+    val isLiveTvMultiEligible = channels.isNotEmpty() &&
+        activeChannelId.isNotBlank() &&
+        activeChannel != null &&
+        !activeChannel.groupTitle.equals("Lokal", ignoreCase = true) &&
+        !com.dinsplayer.app.core.player.isVodUrl(activeChannel.url)
+    val openMultiViewFromPlayer: () -> Unit = {
+        MultiPlayerActivity.launch(
+            context = context,
+            initialChannelIds = listOf(activeChannelId),
+            autoPickSlot = 1,
+        )
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        onBack()
+    }
     
     var epgNowTrigger by remember { mutableLongStateOf(System.currentTimeMillis() / 60_000L) }
     LaunchedEffect(Unit) {
@@ -1353,6 +1368,25 @@ fun PlayerScreen(
                                     }
                                 }
 
+                                // Multi TV - hanya tampil saat Live TV aktif
+                                if (isLiveTvMultiEligible) {
+                                    IconButton(
+                                        onClick = openMultiViewFromPlayer,
+                                        modifier = Modifier
+                                            .size(lsCtrlSize)
+                                            .clip(CircleShape)
+                                            .background(ctrlBg)
+                                            .tvFocusRing(CircleShape)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Dashboard,
+                                            contentDescription = "Multi TV",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(lsIconSize)
+                                        )
+                                    }
+                                }
+
                                 IconButton(
                                     onClick = { showSettings = !showSettings },
                                     modifier = Modifier
@@ -1442,6 +1476,16 @@ fun PlayerScreen(
                                 }
                             }
                             Spacer(Modifier.width(14.dp))
+                            // Multi TV - hanya tampil saat Live TV aktif
+                            if (isLiveTvMultiEligible) {
+                                IconButton(
+                                    onClick = openMultiViewFromPlayer,
+                                    modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(Icons.Filled.Dashboard, "Multi TV", tint = Color.White, modifier = Modifier.size(iconSize))
+                                }
+                                Spacer(Modifier.width(14.dp))
+                            }
                             IconButton(
                                 onClick = { showSettings = !showSettings },
                                 modifier = Modifier.size(ctrlSize).clip(CircleShape).background(ctrlBg).tvFocusRing(CircleShape)

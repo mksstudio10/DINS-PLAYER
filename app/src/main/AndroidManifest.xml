@@ -107,6 +107,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".features.multistream.MultiPlayerActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.DINSPLAYER"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
+
         <!-- Player Service for background playback -->
         <service
             android:name=".core.player.PlayerService"

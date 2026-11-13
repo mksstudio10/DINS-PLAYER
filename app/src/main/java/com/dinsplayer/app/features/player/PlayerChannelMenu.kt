@@ -121,6 +121,7 @@ fun PlayerChannelMenu(
     isLandscape: Boolean,
     onChannelClick: (ChannelItem) -> Unit,
     onDismiss: () -> Unit,
+    headerLabel: String? = null,
 ) {
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     androidx.activity.compose.BackHandler(enabled = visible) {
@@ -172,7 +173,7 @@ fun PlayerChannelMenu(
                             detectTapGestures { /* consume taps so backdrop doesn't dismiss */ }
                         }
                 ) {
-                    LandscapeLayout(channels, activeChannelId, onChannelClick, onDismiss)
+                    LandscapeLayout(channels, activeChannelId, headerLabel, onChannelClick, onDismiss)
                 }
             } else {
                 Column(
@@ -208,7 +209,7 @@ fun PlayerChannelMenu(
                             .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                             .background(MenuBgPanel)
                     ) {
-                        PortraitLayout(channels, activeChannelId, onChannelClick, onDismiss)
+                        PortraitLayout(channels, activeChannelId, headerLabel, onChannelClick, onDismiss)
                     }
                 }
             }
@@ -218,9 +219,44 @@ fun PlayerChannelMenu(
 
 // Portrait: header + category chips + list
 @Composable
+private fun ChannelMenuHeaderStrip(
+    headerLabel: String,
+    compact: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MenuBgHeader)
+            .padding(
+                horizontal = if (compact) 12.dp else 14.dp,
+                vertical = if (compact) 9.dp else 10.dp,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(if (compact) 14.dp else 16.dp)
+                .background(MenuCyan, RoundedCornerShape(2.dp))
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = headerLabel,
+            color = MenuTextWhite,
+            fontSize = if (compact) 13.sp else 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    HorizontalDivider(color = MenuDivider, thickness = 0.5.dp)
+}
+
+@Composable
 private fun PortraitLayout(
     channels: List<ChannelItem>,
     activeChannelId: String,
+    headerLabel: String? = null,
     onChannelClick: (ChannelItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -289,6 +325,9 @@ private fun PortraitLayout(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (!headerLabel.isNullOrBlank()) {
+            ChannelMenuHeaderStrip(headerLabel = headerLabel, compact = false)
+        }
         // Header
         Row(
             modifier = Modifier
@@ -383,8 +422,12 @@ private fun PortraitLayout(
 
         // Channel list
         if (filtered.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Tidak ada saluran ditemukan", color = MenuTextMuted, fontSize = 14.sp)
+            Box(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (channels.isEmpty()) "Belum ada playlist Live TV aktif" else "Tidak ada saluran ditemukan",
+                    color = MenuTextMuted,
+                    fontSize = 14.sp,
+                )
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {
@@ -415,6 +458,7 @@ private fun PortraitLayout(
 private fun LandscapeLayout(
     channels: List<ChannelItem>,
     activeChannelId: String,
+    headerLabel: String? = null,
     onChannelClick: (ChannelItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -641,6 +685,9 @@ private fun LandscapeLayout(
 
         // Right: search + list
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            if (!headerLabel.isNullOrBlank()) {
+                ChannelMenuHeaderStrip(headerLabel = headerLabel, compact = true)
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -709,8 +756,12 @@ private fun LandscapeLayout(
             }
             HorizontalDivider(color = MenuDivider, thickness = 0.5.dp)
             if (filtered.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Tidak ada saluran", color = MenuTextMuted, fontSize = 13.sp)
+                Box(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (channels.isEmpty()) "Belum ada playlist Live TV aktif" else "Tidak ada saluran",
+                        color = MenuTextMuted,
+                        fontSize = 13.sp,
+                    )
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), state = listState) {

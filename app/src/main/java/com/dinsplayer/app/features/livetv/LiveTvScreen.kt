@@ -1,9 +1,11 @@
 package com.dinsplayer.app.features.livetv
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.res.painterResource
 import com.dinsplayer.app.R
 import com.dinsplayer.app.features.mobile.rememberIsWideNav
@@ -32,8 +34,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,12 +48,15 @@ import coil.compose.AsyncImage
 import com.dinsplayer.app.core.network.M3uParser
 import com.dinsplayer.app.core.network.XtreamParser
 import com.dinsplayer.app.core.player.Media3Manager
+import com.dinsplayer.app.features.multistream.MultiPlayerActivity
 import com.dinsplayer.app.data.db.AppDatabase
 import com.dinsplayer.app.data.models.Channel
 import com.dinsplayer.app.data.models.PlaylistType
 import com.dinsplayer.app.features.player.ChannelItem
 import com.dinsplayer.app.features.player.PlayerScreen
 import com.dinsplayer.app.ui.theme.AccentBlue
+import com.dinsplayer.app.ui.theme.AccentBlueSoft
+import com.dinsplayer.app.ui.theme.BgDialog
 import com.dinsplayer.app.ui.theme.BgBase
 import com.dinsplayer.app.ui.theme.BgElevated
 import com.dinsplayer.app.ui.theme.BgSurface
@@ -77,6 +86,38 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
     var isLoading by remember { mutableStateOf(false) }
     var loadingMessage by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
+
+    // Multi-select mode: user long-press channel atau pilih lewat header untuk masuk mode ini, max 4 slot
+    var isMultiSelectMode by remember { mutableStateOf(false) }
+    var multiSelectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showMultiMenu by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+
+    fun toggleMultiSelect(channel: Channel) {
+        val id = channel.id.toString()
+        multiSelectedIds = if (id in multiSelectedIds) {
+            multiSelectedIds - id
+        } else if (multiSelectedIds.size < 4) {
+            multiSelectedIds + id
+        } else {
+            multiSelectedIds
+        }
+    }
+
+    fun exitMultiSelect() {
+        isMultiSelectMode = false
+        multiSelectedIds = emptyList()
+    }
+
+    fun syncLiveChannelsToPlayer(): List<ChannelItem> {
+        val items = channels.toChannelItems()
+        Media3Manager.setActiveChannels(items)
+        return items
+    }
+
+    BackHandler(enabled = isMultiSelectMode) {
+        exitMultiSelect()
+    }
 
     val scope = rememberCoroutineScope()
     val isGridFlow = remember { context.settingsDataStore.data }
@@ -128,6 +169,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
     }
 
     LaunchedEffect(reloadKey, initialPlaylistId) {
+        exitMultiSelect()
         if (playlists.isEmpty() || activePlaylist == null) {
             channels = emptyList()
             groups = emptyList()
@@ -154,23 +196,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
             }
             channels = fetchedChannels
             // Push channel list to Media3Manager so PlayerScreen can use it for in-player menu
-            val channelItems = fetchedChannels.map { ch ->
-                ChannelItem(
-                    id = ch.id.toString(),
-                    name = ch.name,
-                    groupTitle = ch.groupTitle,
-                    logoUrl = ch.logoUrl,
-                    url = ch.url,
-                    userAgent = ch.userAgent,
-                    referer = ch.referer,
-                    origin = ch.origin,
-                    drmScheme = ch.drmScheme.takeIf { it.isNotBlank() },
-                    drmLicenseUri = ch.drmLicenseUri?.takeIf { it.isNotBlank() },
-                    manifestType = ch.manifestType,
-                    tvgId = ch.tvgId
-                )
-            }
-            Media3Manager.setActiveChannels(channelItems)
+            Media3Manager.setActiveChannels(fetchedChannels.toChannelItems())
             val uniqueGroups = fetchedChannels.map { it.groupTitle }.filter { it.isNotBlank() }.distinct().sorted()
             groups = listOf("Semua") + uniqueGroups
             if (selectedGroup !in groups) selectedGroup = "Semua"
@@ -195,7 +221,8 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
 
     // No background here: the shell paints AppWallpaper behind every tab and a solid fill would
     // cover it. Header rows raise their own surface where they need contrast.
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
         // Header
         Row(
             modifier = Modifier
@@ -205,7 +232,32 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (showSearch) {
+            if (isMultiSelectMode) {
+                // Header mode multi-select: tampilkan jumlah terpilih + tombol batal
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Dashboard, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            "Pilih saluran",
+                            style = MaterialTheme.typography.titleSmall.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            "${multiSelectedIds.size}/4 dipilih",
+                            style = MaterialTheme.typography.bodySmall.copy(color = AccentBlue)
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = { exitMultiSelect() },
+                    modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
+                ) {
+                    Text("Batal", color = TextSecondary)
+                }
+            } else if (showSearch) {
                 val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
                 OutlinedTextField(
                     value = searchQuery,
@@ -247,6 +299,59 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         tint = if (isGridView) AccentBlue else TextSecondary,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+                // Multi TV: pilih mode multi-select atau buka layar Multi TV langsung
+                Box {
+                    IconButton(
+                        onClick = { showMultiMenu = true },
+                        modifier = Modifier.tvFocusRing(CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Filled.Dashboard,
+                            contentDescription = "Multi TV",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMultiMenu,
+                        onDismissRequest = { showMultiMenu = false },
+                        containerColor = BgDialog,
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Pilih Saluran (2-4 TV)", color = TextPrimary) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Checklist,
+                                    contentDescription = null,
+                                    tint = AccentBlue,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            enabled = channels.isNotEmpty(),
+                            onClick = {
+                                showMultiMenu = false
+                                multiSelectedIds = emptyList()
+                                isMultiSelectMode = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Buka Layar Kosong", color = TextPrimary) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Dashboard,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = {
+                                showMultiMenu = false
+                                syncLiveChannelsToPlayer()
+                                MultiPlayerActivity.launch(context)
+                            },
+                        )
+                    }
                 }
                 IconButton(
                     onClick = { showSearch = true },
@@ -345,11 +450,11 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                 val onPlayChannel: (Channel) -> Unit = { channel ->
                     keyboardController?.hide()
                     focusManager.clearFocus()
+                    syncLiveChannelsToPlayer()
                     val liveHeaders = buildMap<String, String> {
                         if (channel.referer.isNotBlank()) put("Referer", channel.referer)
                         if (channel.origin.isNotBlank()) put("Origin", channel.origin)
                     }
-                    // Track which channel is currently active
                     Media3Manager.setActiveChannelId(channel.id.toString())
                     Media3Manager.play(
                         url = channel.url,
@@ -368,7 +473,11 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         // Portrait stays 3 across. Wide screens get a fixed 5 so the channel
                         // fleet reads as a stable wall of logos instead of a shifting count.
                         columns = GridCells.Fixed(if (wide) 5 else 3),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(
+                            start = 12.dp, end = 12.dp,
+                            top = 6.dp,
+                            bottom = if (isMultiSelectMode) 120.dp else 6.dp
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
@@ -378,17 +487,29 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                                 com.dinsplayer.app.core.epg.EpgManager
                                     .resolve(channel.tvgId, channel.name, epgNowMap, normalizedIndex)
                             }
+                            val slotNumber = multiSelectedIds.indexOf(channel.id.toString()).let { if (it >= 0) it + 1 else null }
                             ChannelGridCard(
                                 channel = channel,
                                 epgProgram = epgProgram,
                                 wide = wide,
-                                onPlay = { onPlayChannel(channel) }
+                                isMultiSelectMode = isMultiSelectMode,
+                                slotNumber = slotNumber,
+                                onPlay = { onPlayChannel(channel) },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isMultiSelectMode = true
+                                    toggleMultiSelect(channel)
+                                }
                             )
                         }
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp,
+                            top = 4.dp,
+                            bottom = if (isMultiSelectMode) 120.dp else 4.dp
+                        ),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(filtered, key = { it.id }, contentType = { "channel_row" }) { channel ->
@@ -396,13 +517,66 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                                 com.dinsplayer.app.core.epg.EpgManager
                                     .resolve(channel.tvgId, channel.name, epgNowMap, normalizedIndex)
                             }
-                            ChannelRow(channel = channel, epgProgram = epgProgram, onPlay = { onPlayChannel(channel) })
+                            val slotNumber = multiSelectedIds.indexOf(channel.id.toString()).let { if (it >= 0) it + 1 else null }
+                            ChannelRow(
+                                channel = channel,
+                                epgProgram = epgProgram,
+                                isMultiSelectMode = isMultiSelectMode,
+                                slotNumber = slotNumber,
+                                onPlay = { onPlayChannel(channel) },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isMultiSelectMode = true
+                                    toggleMultiSelect(channel)
+                                }
+                            )
                         }
                     }
                 }
             }
         }
-    }
+        } // end Column
+
+        // Floating tray muncul di atas list saat mode multi-select aktif
+        if (isMultiSelectMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 4.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                MultiSelectTray(
+                    selectedCount = multiSelectedIds.size,
+                    onCancel = { exitMultiSelect() },
+                    onStart = {
+                        val allChannelItems = syncLiveChannelsToPlayer()
+                        val selected = multiSelectedIds.mapNotNull { id ->
+                            allChannelItems.find { it.id == id }
+                        }
+                        MultiPlayerActivity.launch(context, selected.map { it.id })
+                        exitMultiSelect()
+                    }
+                )
+            }
+        }
+    } // end Box
+}
+
+private fun List<Channel>.toChannelItems(): List<ChannelItem> = map { ch ->
+    ChannelItem(
+        id = ch.id.toString(),
+        name = ch.name,
+        groupTitle = ch.groupTitle,
+        logoUrl = ch.logoUrl,
+        url = ch.url,
+        userAgent = ch.userAgent,
+        referer = ch.referer,
+        origin = ch.origin,
+        drmScheme = ch.drmScheme.takeIf { it.isNotBlank() },
+        drmLicenseUri = ch.drmLicenseUri?.takeIf { it.isNotBlank() },
+        manifestType = ch.manifestType,
+        tvgId = ch.tvgId,
+    )
 }
 
 private val epgTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
@@ -415,18 +589,37 @@ private fun formatEpgTimeRange(startMillis: Long, stopMillis: Long): String {
 }
 
 @Composable
-private fun ChannelRow(channel: Channel, epgProgram: com.dinsplayer.app.core.epg.EpgProgram?, onPlay: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(BgElevated)
-            .border(1.dp, DividerColor, RoundedCornerShape(12.dp))
-            .tvFocusRing(RoundedCornerShape(12.dp))
-            .clickable { onPlay() }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+private fun ChannelRow(
+    channel: Channel,
+    epgProgram: com.dinsplayer.app.core.epg.EpgProgram?,
+    isMultiSelectMode: Boolean = false,
+    slotNumber: Int? = null,
+    onPlay: () -> Unit,
+    onLongClick: () -> Unit = {},
+) {
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (slotNumber != null) AccentBlueSoft else BgElevated
+                )
+                .border(
+                    1.dp,
+                    if (slotNumber != null) AccentBlue else DividerColor,
+                    RoundedCornerShape(12.dp)
+                )
+                .tvFocusRing(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = {
+                        if (isMultiSelectMode) onLongClick() else onPlay()
+                    },
+                    onLongClick = onLongClick
+                )
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -482,7 +675,32 @@ private fun ChannelRow(channel: Channel, epgProgram: com.dinsplayer.app.core.epg
                 Text(channel.groupTitle, style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
             }
         }
-        Icon(Icons.Filled.PlayCircle, contentDescription = "Putar", tint = AccentBlue, modifier = Modifier.size(28.dp))
+        if (isMultiSelectMode) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(if (slotNumber != null) AccentBlue else Color.Transparent)
+                    .border(
+                        width = if (slotNumber != null) 0.dp else 1.5.dp,
+                        color = if (slotNumber != null) AccentBlue else DividerColor,
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (slotNumber != null) {
+                    Text(
+                        text = slotNumber.toString(),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        } else {
+            Icon(Icons.Filled.PlayCircle, contentDescription = "Putar", tint = AccentBlue, modifier = Modifier.size(28.dp))
+        }
+        }
     }
 }
 
@@ -491,19 +709,26 @@ private fun ChannelGridCard(
     channel: Channel,
     epgProgram: com.dinsplayer.app.core.epg.EpgProgram? = null,
     wide: Boolean,
-    onPlay: () -> Unit
+    isMultiSelectMode: Boolean = false,
+    slotNumber: Int? = null,
+    onPlay: () -> Unit,
+    onLongClick: () -> Unit = {},
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(BgElevated)
-            .border(1.dp, DividerColor, RoundedCornerShape(12.dp))
-            .tvFocusRing(RoundedCornerShape(12.dp))
-            .clickable { onPlay() }
-            .padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Box {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (slotNumber != null) AccentBlueSoft else BgElevated)
+                .border(1.dp, if (slotNumber != null) AccentBlue else DividerColor, RoundedCornerShape(12.dp))
+                .tvFocusRing(RoundedCornerShape(12.dp))
+                .combinedClickable(
+                    onClick = { if (isMultiSelectMode) onLongClick() else onPlay() },
+                    onLongClick = onLongClick
+                )
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -567,6 +792,101 @@ private fun ChannelGridCard(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().tvMarquee()
             )
+        }
+        }
+        // Badge nomor slot
+        if (slotNumber != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .background(AccentBlue, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(slotNumber.toString(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiSelectTray(
+    selectedCount: Int,
+    onCancel: () -> Unit,
+    onStart: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(BgDialog)
+            .border(1.dp, AccentBlue.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "$selectedCount/4 saluran dipilih",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        if (selectedCount < 2) "Pilih minimal 2 saluran" else "Siap untuk Multi TV",
+                        color = if (selectedCount >= 2) AccentBlue else TextMuted,
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
+                ) {
+                    Text("Batal", color = TextSecondary)
+                }
+                Spacer(Modifier.width(4.dp))
+                Button(
+                    onClick = onStart,
+                    enabled = selectedCount >= 2,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue,
+                        disabledContainerColor = AccentBlue.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.tvFocusRing(RoundedCornerShape(10.dp)),
+                ) {
+                    Icon(Icons.Filled.Dashboard, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Mulai")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (slot in 1..4) {
+                    val filled = slot <= selectedCount
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (filled) AccentBlueSoft else BgSurface)
+                            .border(
+                                1.dp,
+                                if (filled) AccentBlue else DividerColor,
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Slot $slot",
+                            color = if (filled) AccentBlue else TextMuted,
+                            fontSize = 10.sp,
+                            fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
         }
     }
 }

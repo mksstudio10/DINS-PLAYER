@@ -273,6 +273,9 @@ fun BerandaScreen(
 
 @Composable
 private fun TopBar(onHistoryClick: () -> Unit) {
+    // TODO: implementasi menu profil pengguna
+    var showProfileComingSoon by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -307,8 +310,10 @@ private fun TopBar(onHistoryClick: () -> Unit) {
                 )
             }
             IconButton(
-                onClick = { /* profil – belum diimplementasi */ },
-                modifier = Modifier.size(40.dp)
+                onClick = { showProfileComingSoon = true },
+                modifier = Modifier
+                    .size(40.dp)
+                    .tvFocusRing(CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.Filled.AccountCircle,
@@ -318,6 +323,52 @@ private fun TopBar(onHistoryClick: () -> Unit) {
                 )
             }
         }
+    }
+
+    if (showProfileComingSoon) {
+        val inputModeManager = LocalInputModeManager.current
+        val closeFocusRequester = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { showProfileComingSoon = false },
+            containerColor = BgDialog,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary,
+            title = {
+                Text(
+                    text = "Profil",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Fitur profil akan segera hadir (Coming Soon).",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                LaunchedEffect(Unit) {
+                    if (inputModeManager.inputMode != InputMode.Touch) {
+                        runCatching { closeFocusRequester.requestFocus() }
+                    }
+                }
+                TextButton(
+                    onClick = { showProfileComingSoon = false },
+                    modifier = Modifier
+                        .focusRequester(closeFocusRequester)
+                        .tvFocusRing(RoundedCornerShape(10.dp)),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = AccentBlue
+                    )
+                ) {
+                    Text(
+                        text = "Tutup",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        )
     }
 }
 
