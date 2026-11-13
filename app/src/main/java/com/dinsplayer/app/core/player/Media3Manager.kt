@@ -380,8 +380,30 @@ object Media3Manager {
                             isDrmDisallowed ->
                                 "Konten dilindungi DRM dan tidak dapat diputar di perangkat ini."
                             error.errorCodeName == "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED" ||
-                            error.errorCodeName == "ERROR_CODE_DECODER_INIT_FAILED" ->
-                                "Format video atau codec tidak didukung oleh perangkat ini. Coba saluran lain."
+                            error.errorCodeName == "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES" ||
+                            error.errorCodeName == "ERROR_CODE_DECODING_FAILED" ||
+                            error.errorCodeName == "ERROR_CODE_DECODER_INIT_FAILED" -> {
+                                val info = "${error.message.orEmpty()} $cause"
+                                val is4k = info.contains("3840") || info.contains("4096") || info.contains("2160")
+                                val isHevc = info.contains("hevc", ignoreCase = true) || info.contains("hvc1", ignoreCase = true)
+                                val isHdr = info.contains("ST2084") || info.contains("HLG", ignoreCase = true) ||
+                                    info.contains("BT2020", ignoreCase = true) || info.contains("10bit", ignoreCase = true)
+                                val exceeds = info.contains("EXCEEDS_CAPABILITIES")
+                                val reason = buildList {
+                                    if (is4k) add("resolusi 4K")
+                                    if (isHevc) add("codec HEVC (H.265)")
+                                    if (isHdr) add("HDR 10-bit")
+                                }
+                                if (exceeds || reason.isNotEmpty()) {
+                                    val what = if (reason.isNotEmpty()) reason.joinToString(", ") else "format video ini"
+                                    "Perangkat ini tidak mampu memutar saluran ini.\n\n" +
+                                        "Saluran memakai $what yang melebihi kemampuan chip video HP/TV Anda. " +
+                                        "Ini bukan kesalahan jaringan atau tautan.\n\n" +
+                                        "Solusi: pilih saluran versi HD/FHD, atau gunakan perangkat yang mendukung 4K HEVC."
+                                } else {
+                                    "Format video atau codec tidak didukung oleh perangkat ini. Coba saluran lain."
+                                }
+                            }
                             error.errorCodeName == "ERROR_CODE_PARSING_CONTAINERS_UNSUPPORTED" ->
                                 "Format file tidak didukung atau aliran data kosong/rusak."
                             error.errorCodeName == "ERROR_CODE_IO_NOT_FOUND" -> "Video atau URL tidak ditemukan (404)."

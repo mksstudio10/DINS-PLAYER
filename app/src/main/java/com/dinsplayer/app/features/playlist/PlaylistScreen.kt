@@ -72,6 +72,8 @@ fun PlaylistScreen(
     val scope = rememberCoroutineScope()
 
     val playlists by dao.observeAll().collectAsState(initial = emptyList())
+    var showAddChoiceDialog by remember { mutableStateOf(false) }
+    var showWebServerDialog by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var playlistToEdit by remember { mutableStateOf<Playlist?>(null) }
     // Copied out of the shared holder so the form keeps its file after the holder is cleared.
@@ -93,7 +95,7 @@ fun PlaylistScreen(
 
     val isLandscape = rememberIsWideNav()
     var isAddTriggered by remember { mutableStateOf(false) }
-    val isAddActive = isAddTriggered || (showAddDialog && playlistToEdit == null)
+    val isAddActive = isAddTriggered || showAddChoiceDialog || showWebServerDialog || (showAddDialog && playlistToEdit == null)
     val addIconRotation by animateFloatAsState(
         targetValue = if (isAddActive) 135f else 0f,
         animationSpec = spring(
@@ -103,12 +105,12 @@ fun PlaylistScreen(
         label = "addIconRotation"
     )
     val triggerAddPlaylist: () -> Unit = {
-        if (!isAddTriggered && !showAddDialog) {
+        if (!isAddTriggered && !showAddChoiceDialog && !showAddDialog && !showWebServerDialog) {
             isAddTriggered = true
             scope.launch {
                 delay(85L)
                 playlistToEdit = null
-                showAddDialog = true
+                showAddChoiceDialog = true
                 isAddTriggered = false
             }
         }
@@ -369,6 +371,38 @@ fun PlaylistScreen(
                 )
             }
         }
+    }
+
+    if (showAddChoiceDialog) {
+        AddPlaylistChoiceDialog(
+            onDismiss = { showAddChoiceDialog = false },
+            onSelectManual = {
+                showAddChoiceDialog = false
+                playlistToEdit = null
+                showAddDialog = true
+            },
+            onSelectWebServer = {
+                showAddChoiceDialog = false
+                showWebServerDialog = true
+            }
+        )
+    }
+
+    if (showWebServerDialog) {
+        WebServerPlaylistDialog(
+            context = context,
+            existingPlaylists = playlists,
+            onDismiss = { showWebServerDialog = false },
+            onAddPlaylist = { newPlaylist ->
+                scope.launch {
+                    val shouldBeActive = playlists.isEmpty() || newPlaylist.isActive
+                    val insertedId = dao.insert(newPlaylist.copy(isActive = shouldBeActive))
+                    if (insertedId > 0L && shouldBeActive) {
+                        dao.setActiveExclusive(insertedId)
+                    }
+                }
+            }
+        )
     }
 
     if (showAddDialog) {
@@ -1332,8 +1366,18 @@ private fun AddPlaylistDialog(
                                     return@Button
                                 }
 
+                                // Tentukan tipe berdasarkan isi source, bukan prefix "http":
+                                // - Path file absolut (dari file picker) → dimulai "/" → M3U_FILE
+                                // - URL → dimulai "http" → M3U_URL
+                                // - Raw M3U paste (dimulai "#EXTM3U") → M3U_URL agar M3uParser
+                                //   membacanya via branch contains("#EXTM3U"), bukan mencoba
+                                //   membuka sebagai path file.
                                 val t = if (selectedType == 1) PlaylistType.XTREAM else PlaylistType.M3U_URL
-                                val finalType = if (t == PlaylistType.M3U_URL && !trimmedSource.startsWith("http")) PlaylistType.M3U_FILE else t
+                                val finalType = when {
+                                    t == PlaylistType.XTREAM -> t
+                                    trimmedSource.startsWith("/") || trimmedSource.startsWith("file://") -> PlaylistType.M3U_FILE
+                                    else -> PlaylistType.M3U_URL
+                                }
                                 val finalUa = currentUserAgent.trim().takeIf { it.isNotBlank() } ?: ""
                                 val isXtream = finalType == PlaylistType.XTREAM
                                 onAdd(Playlist(

@@ -12,6 +12,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,12 +87,78 @@ fun BerandaScreen() {
     var form by remember { mutableStateOf(StreamTestForm()) }
     var showPlayer by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+    var showWebServerDialog by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     val playFocusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     var shouldRestoreFocus by rememberSaveable { mutableStateOf(false) }
+
+    fun playStreamForm(targetForm: StreamTestForm) {
+        keyboardController?.hide()
+        if (targetForm.url.isBlank()) {
+            Toast.makeText(context, "Masukkan URL stream", Toast.LENGTH_SHORT).show()
+            return
+        }
+        shouldRestoreFocus = true
+        val ua = if (targetForm.userAgent == UserAgentOption.CUSTOM) targetForm.customUserAgent else targetForm.userAgent.value
+
+        var finalDrmUri: String? = targetForm.drmLicense.trim().takeIf { it.isNotBlank() }
+        var detectedScheme: String? = when (targetForm.drmScheme) {
+            DrmSchemeOption.AUTO -> null
+            else -> targetForm.drmScheme.name
+        }
+
+        if (finalDrmUri != null && finalDrmUri.contains(":") && !finalDrmUri.startsWith("http")) {
+            try {
+                val pairs = finalDrmUri.split(",").map { it.trim() }.filter { it.contains(":") }
+                val zeroKid64 = android.util.Base64.encodeToString(
+                    hexStringToByteArray("00000000000000000000000000000000"),
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                )
+                val keysJsonList = mutableListOf<String>()
+                for (pair in pairs) {
+                    val kid = pair.substringBefore(":").trim().trim('"').replace("-", "")
+                    val k = pair.substringAfter(":").trim().trim('"').replace("-", "")
+                    val kidBytes = hexStringToByteArray(kid)
+                    val kBytes = hexStringToByteArray(k)
+                    if (kidBytes.isNotEmpty() && kBytes.isNotEmpty()) {
+                        val kid64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                        val k64 = android.util.Base64.encodeToString(kBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                        keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$kid64"}""")
+                        if (!kid.equals("00000000000000000000000000000000", ignoreCase = true)) {
+                            keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$zeroKid64"}""")
+                        }
+                    }
+                }
+                if (keysJsonList.isNotEmpty()) {
+                    val json = """{"keys":[${keysJsonList.joinToString(",")}],"type":"temporary"}"""
+                    finalDrmUri = "data:application/json,${java.net.URLEncoder.encode(json, "UTF-8")}"
+                }
+                if (targetForm.drmScheme == DrmSchemeOption.AUTO) {
+                    detectedScheme = "CLEARKEY"
+                }
+            } catch (_: Exception) {}
+        } else if (targetForm.drmScheme == DrmSchemeOption.AUTO && finalDrmUri != null) {
+            detectedScheme = if (targetForm.url.lowercase().contains(".mpd")) "WIDEVINE" else "CLEARKEY"
+        }
+
+        StreamHistoryManager.saveHistoryItem(context, targetForm)
+
+        val autoManifestType = if (targetForm.url.lowercase().contains(".mpd")) "mpd" else if (targetForm.url.lowercase().contains(".m3u8")) "hls" else null
+
+        Media3Manager.play(
+            url = targetForm.url.trim(),
+            userAgent = ua,
+            headers = buildHeaders(targetForm),
+            drmScheme = detectedScheme,
+            drmLicenseUri = finalDrmUri,
+            manifestType = autoManifestType
+        )
+        Media3Manager.launchPlayer(context)
+        showPlayer = true
+    }
 
     // Pulihkan fokus remote D-pad otomatis ke tombol Putar Stream saat kembali dari PlayerActivity
     DisposableEffect(lifecycleOwner) {
@@ -157,75 +226,23 @@ fun BerandaScreen() {
                             Toast.makeText(context, "Clipboard kosong", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onPlay = {
-                        keyboardController?.hide()
-                        if (form.url.isBlank()) {
-                            Toast.makeText(context, "Masukkan URL stream", Toast.LENGTH_SHORT).show()
-                        } else {
-                            shouldRestoreFocus = true
-                            val ua = if (form.userAgent == UserAgentOption.CUSTOM) form.customUserAgent else form.userAgent.value
-                            
-                            var finalDrmUri: String? = form.drmLicense.trim().takeIf { it.isNotBlank() }
-                            // Null when no DRM; only set a scheme string when DRM is actually present
-                            var detectedScheme: String? = when (form.drmScheme) {
-                                DrmSchemeOption.AUTO -> null
-                                else -> form.drmScheme.name
-                            }
-
-                            if (finalDrmUri != null && finalDrmUri.contains(":") && !finalDrmUri.startsWith("http")) {
-                                try {
-                                    val pairs = finalDrmUri.split(",").map { it.trim() }.filter { it.contains(":") }
-                                    val zeroKid64 = android.util.Base64.encodeToString(
-                                        hexStringToByteArray("00000000000000000000000000000000"),
-                                        android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                                    )
-                                    val keysJsonList = mutableListOf<String>()
-                                    for (pair in pairs) {
-                                        val kid = pair.substringBefore(":").trim().trim('"').replace("-", "")
-                                        val k = pair.substringAfter(":").trim().trim('"').replace("-", "")
-                                        val kidBytes = hexStringToByteArray(kid)
-                                        val kBytes = hexStringToByteArray(k)
-                                        if (kidBytes.isNotEmpty() && kBytes.isNotEmpty()) {
-                                            val kid64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                            val k64 = android.util.Base64.encodeToString(kBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                            keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$kid64"}""")
-                                            if (!kid.equals("00000000000000000000000000000000", ignoreCase = true)) {
-                                                keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$zeroKid64"}""")
-                                            }
-                                        }
-                                    }
-                                    if (keysJsonList.isNotEmpty()) {
-                                        val json = """{"keys":[${keysJsonList.joinToString(",")}],"type":"temporary"}"""
-                                        finalDrmUri = "data:application/json,${java.net.URLEncoder.encode(json, "UTF-8")}"
-                                    }
-                                    if (form.drmScheme == DrmSchemeOption.AUTO) {
-                                        detectedScheme = "CLEARKEY"
-                                    }
-                                } catch (e: Exception) {
-                                    // ignore or log
-                                }
-                            } else if (form.drmScheme == DrmSchemeOption.AUTO && finalDrmUri != null) {
-                                detectedScheme = if (form.url.lowercase().contains(".mpd")) "WIDEVINE" else "CLEARKEY"
-                            }
-                            
-                            StreamHistoryManager.saveHistoryItem(context, form)
-
-                            val autoManifestType = if (form.url.lowercase().contains(".mpd")) "mpd" else if (form.url.lowercase().contains(".m3u8")) "hls" else null
-
-                            Media3Manager.play(
-                                url = form.url.trim(), 
-                                userAgent = ua, 
-                                headers = buildHeaders(form),
-                                drmScheme = detectedScheme,
-                                drmLicenseUri = finalDrmUri,
-                                manifestType = autoManifestType
-                            )
-                            Media3Manager.launchPlayer(context)
-                            showPlayer = true
-                        }
-                    }
+                    onOpenWebServer = { showWebServerDialog = true },
+                    onPlay = { playStreamForm(form) }
                 )
             }
+        }
+
+        if (showWebServerDialog) {
+            WebServerStreamDialog(
+                currentForm = form,
+                onDismiss = { showWebServerDialog = false },
+                onApplyForm = { updatedForm, playNow ->
+                    form = updatedForm
+                    if (playNow) {
+                        playStreamForm(updatedForm)
+                    }
+                }
+            )
         }
 
         if (showHistory) {
@@ -240,64 +257,9 @@ fun BerandaScreen() {
                         showHistory = false
                     },
                     onItemPlay = { selectedForm ->
-                        keyboardController?.hide()
                         form = selectedForm
                         showHistory = false
-                        shouldRestoreFocus = true
-                        
-                        // Play immediately
-                        val ua = if (selectedForm.userAgent == UserAgentOption.CUSTOM) selectedForm.customUserAgent else selectedForm.userAgent.value
-                        var finalDrmUri: String? = selectedForm.drmLicense.trim().takeIf { it.isNotBlank() }
-                        var detectedScheme: String? = when (selectedForm.drmScheme) {
-                            DrmSchemeOption.AUTO -> null
-                            else -> selectedForm.drmScheme.name
-                        }
-
-                        if (finalDrmUri != null && finalDrmUri.contains(":") && !finalDrmUri.startsWith("http")) {
-                            try {
-                                val pairs = finalDrmUri.split(",").map { it.trim() }.filter { it.contains(":") }
-                                val zeroKid64 = android.util.Base64.encodeToString(
-                                    hexStringToByteArray("00000000000000000000000000000000"),
-                                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                                )
-                                val keysJsonList = mutableListOf<String>()
-                                for (pair in pairs) {
-                                    val kid = pair.substringBefore(":").trim().trim('"').replace("-", "")
-                                    val k = pair.substringAfter(":").trim().trim('"').replace("-", "")
-                                    val kidBytes = hexStringToByteArray(kid)
-                                    val kBytes = hexStringToByteArray(k)
-                                    if (kidBytes.isNotEmpty() && kBytes.isNotEmpty()) {
-                                        val kid64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                        val k64 = android.util.Base64.encodeToString(kBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                        keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$kid64"}""")
-                                        if (!kid.equals("00000000000000000000000000000000", ignoreCase = true)) {
-                                            keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$zeroKid64"}""")
-                                        }
-                                    }
-                                }
-                                if (keysJsonList.isNotEmpty()) {
-                                    val json = """{"keys":[${keysJsonList.joinToString(",")}],"type":"temporary"}"""
-                                    finalDrmUri = "data:application/json,${java.net.URLEncoder.encode(json, "UTF-8")}"
-                                }
-                                if (selectedForm.drmScheme == DrmSchemeOption.AUTO) {
-                                    detectedScheme = "CLEARKEY"
-                                }
-                            } catch (e: Exception) {}
-                        } else if (selectedForm.drmScheme == DrmSchemeOption.AUTO && finalDrmUri != null) {
-                            detectedScheme = if (selectedForm.url.lowercase().contains(".mpd")) "WIDEVINE" else "CLEARKEY"
-                        }
-                        
-                        StreamHistoryManager.saveHistoryItem(context, selectedForm)
-                        val autoManifestType = if (selectedForm.url.lowercase().contains(".mpd")) "mpd" else if (selectedForm.url.lowercase().contains(".m3u8")) "hls" else null
-                        Media3Manager.play(
-                            url = selectedForm.url.trim(), 
-                            userAgent = ua, 
-                            headers = buildHeaders(selectedForm),
-                            drmScheme = detectedScheme,
-                            drmLicenseUri = finalDrmUri,
-                            manifestType = autoManifestType
-                        )
-                        Media3Manager.launchPlayer(context)
+                        playStreamForm(selectedForm)
                     }
                 )
             }
@@ -395,6 +357,7 @@ private fun StreamFormContent(
     playFocusRequester: FocusRequester,
     onFormChange: (StreamTestForm) -> Unit,
     onPaste: () -> Unit,
+    onOpenWebServer: () -> Unit,
     onPlay: () -> Unit,
 ) {
     Column(
@@ -407,10 +370,12 @@ private fun StreamFormContent(
             onValueChange = { onFormChange(form.copy(url = it)) },
             placeholder = "Tautan Stream",
             trailingIcon = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     IconButton(
                         onClick = onPaste,
-                        modifier = Modifier.tvFocusRing(CircleShape)
+                        modifier = Modifier
+                            .size(40.dp)
+                            .tvFocusRing(CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ContentPaste,
@@ -422,7 +387,9 @@ private fun StreamFormContent(
                     if (form.url.isNotBlank()) {
                         IconButton(
                             onClick = onPlay,
-                            modifier = Modifier.tvFocusRing(CircleShape)
+                            modifier = Modifier
+                                .size(40.dp)
+                                .tvFocusRing(CircleShape)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.PlayArrow,
@@ -538,6 +505,57 @@ private fun StreamFormContent(
             }
         }
 
+        // Tombol Scan QR / Isi via Web Server di bawah Opsi Lanjutan
+        var isWebBtnFocused by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (isWebBtnFocused) AccentBlue.copy(alpha = 0.24f)
+                    else Color.White.copy(alpha = 0.08f)
+                )
+                .border(
+                    width = if (isWebBtnFocused) 2.5.dp else 1.dp,
+                    color = if (isWebBtnFocused) Color.White else AccentBlue.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .tvFocusRing(RoundedCornerShape(12.dp))
+                .onFocusChanged { isWebBtnFocused = it.isFocused || it.hasFocus }
+                .clickable { onOpenWebServer() }
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.QrCode2,
+                    contentDescription = null,
+                    tint = if (isWebBtnFocused) Color.White else ElectricBlue,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Scan QR / Isi via Web",
+                    style = TextStyle(
+                        color = if (isWebBtnFocused) Color.White else TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+            }
+            Text(
+                text = "Browser HP",
+                style = TextStyle(
+                    color = if (isWebBtnFocused) Color.White.copy(alpha = 0.85f) else ElectricBlue,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+        }
+
         var isPlayFocused by remember { mutableStateOf(false) }
 
         Box(
@@ -611,154 +629,177 @@ private fun PillTextField(
     LaunchedEffect(restoreRowFocus) {
         if (restoreRowFocus) {
             delay(60)
-            try { rowFocusRequester.requestFocus() } catch (_: Exception) {}
+            runCatching { rowFocusRequester.requestFocus() }
             restoreRowFocus = false
         }
     }
 
+    // Fokus ke input dicoba berulang; node BasicTextField baru terpasang setelah recomposition.
+    // Jika tetap gagal, mode edit dibatalkan agar field tidak macet.
     LaunchedEffect(isEditing) {
         if (isEditing) {
             inputHadFocus = false
-            delay(50)
-            try {
-                inputFocusRequester.requestFocus()
-                delay(100)
-                keyboardController?.show()
-                // Scroll field ke atas keyboard
-                delay(150)
-                bringIntoViewRequester.bringIntoView()
-            } catch (_: Exception) {}
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .bringIntoViewRequester(bringIntoViewRequester)
-            .border(
-                width = if (isFocused || isEditing) 3.dp else 1.dp,
-                color = if (isFocused || isEditing) Color.White else Color.White.copy(alpha = 0.20f),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isFocused || isEditing) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f))
-            .then(
-                if (!isEditing) {
-                    Modifier
-                        .focusRequester(rowFocusRequester)
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
-                        .clickable { isEditing = true }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                                    isEditing = true
-                                    true
-                                } else if (event.key == Key.DirectionDown) {
-                                    focusManager.moveFocus(FocusDirection.Down)
-                                    true
-                                } else if (event.key == Key.DirectionUp) {
-                                    focusManager.moveFocus(FocusDirection.Up)
-                                    true
-                                } else false
-                            } else false
-                        }
-                } else Modifier
-            )
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        if (isEditing) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontSize = 14.sp
-                ),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onDone = {
-                        isEditing = false
-                        keyboardController?.hide()
-                        restoreRowFocus = true
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = if (trailingIcon != null) 40.dp else 0.dp)
-                    .focusRequester(inputFocusRequester)
-                    .onFocusChanged { 
-                        if (it.isFocused || it.hasFocus) {
-                            inputHadFocus = true
-                        } else if (inputHadFocus) {
-                            isEditing = false
-                            keyboardController?.hide()
-                        }
-                    }
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            if (event.key == Key.Back) {
-                                isEditing = false
-                                keyboardController?.hide()
-                                restoreRowFocus = true
-                                true
-                            } else if (event.key == Key.DirectionDown) {
-                                isEditing = false
-                                keyboardController?.hide()
-                                focusManager.moveFocus(FocusDirection.Down)
-                                true
-                            } else if (event.key == Key.DirectionUp) {
-                                isEditing = false
-                                keyboardController?.hide()
-                                focusManager.moveFocus(FocusDirection.Up)
-                                true
-                            } else false
-                        } else false
-                    },
-                decorationBox = @Composable { innerTextField ->
-                    if (value.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = TextStyle(
-                                color = TextMuted,
-                                fontSize = 14.sp
-                            )
-                        )
-                    }
-                    innerTextField()
+            var focused = false
+            for (wait in listOf(40L, 100L, 200L)) {
+                delay(wait)
+                if (runCatching { inputFocusRequester.requestFocus() }.isSuccess) {
+                    focused = true
+                    break
                 }
-            )
-        } else {
-            Text(
-                text = if (value.isNotEmpty()) value else placeholder,
-                style = TextStyle(
-                    color = if (value.isNotEmpty()) Color.White else TextMuted,
-                    fontSize = 14.sp
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = if (trailingIcon != null) 40.dp else 0.dp)
-            )
-        }
-
-        if (trailingIcon != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 4.dp)
-            ) {
-                trailingIcon()
+            }
+            if (focused) {
+                delay(80)
+                keyboardController?.show()
+                delay(150)
+                runCatching { bringIntoViewRequester.bringIntoView() }
+            } else {
+                isEditing = false
             }
         }
     }
-}
 
+    val active = isFocused || isEditing
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .border(
+                width = if (active) 3.dp else 1.dp,
+                color = if (active) Color.White else Color.White.copy(alpha = 0.20f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (active) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f))
+            .padding(start = 16.dp, end = if (trailingIcon != null) 6.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .defaultMinSize(minHeight = 52.dp)
+                .then(
+                    if (!isEditing) {
+                        Modifier
+                            .focusRequester(rowFocusRequester)
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusable()
+                            .clickable { isEditing = true }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionCenter, Key.Enter -> {
+                                            isEditing = true
+                                            true
+                                        }
+                                        Key.DirectionDown -> {
+                                            focusManager.moveFocus(FocusDirection.Down)
+                                            true
+                                        }
+                                        Key.DirectionUp -> {
+                                            focusManager.moveFocus(FocusDirection.Up)
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                } else false
+                            }
+                    } else {
+                        // Ketukan di area kosong baris tetap mengembalikan fokus ke input.
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures {
+                                runCatching { inputFocusRequester.requestFocus() }
+                                keyboardController?.show()
+                            }
+                        }
+                    }
+                ),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (isEditing) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = {
+                            isEditing = false
+                            keyboardController?.hide()
+                            restoreRowFocus = true
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(inputFocusRequester)
+                        .onFocusChanged {
+                            if (it.isFocused || it.hasFocus) {
+                                inputHadFocus = true
+                            } else if (inputHadFocus) {
+                                isEditing = false
+                                keyboardController?.hide()
+                            }
+                        }
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.Back -> {
+                                        isEditing = false
+                                        keyboardController?.hide()
+                                        restoreRowFocus = true
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        isEditing = false
+                                        keyboardController?.hide()
+                                        focusManager.moveFocus(FocusDirection.Down)
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        isEditing = false
+                                        keyboardController?.hide()
+                                        focusManager.moveFocus(FocusDirection.Up)
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            } else false
+                        },
+                    decorationBox = @Composable { innerTextField ->
+                        if (value.isEmpty()) {
+                            Text(
+                                text = placeholder,
+                                style = TextStyle(color = TextMuted, fontSize = 14.sp)
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+            } else {
+                Text(
+                    text = if (value.isNotEmpty()) value else placeholder,
+                    style = TextStyle(
+                        color = if (value.isNotEmpty()) Color.White else TextMuted,
+                        fontSize = 14.sp
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (trailingIcon != null) {
+            Spacer(Modifier.width(4.dp))
+            trailingIcon()
+        }
+    }
+}
 
 @Composable
 private fun PillCustomHeadersAccordion(
@@ -870,7 +911,7 @@ private fun PillDropdown(
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                 .fillMaxWidth()
-                .height(54.dp)
+                .defaultMinSize(minHeight = 56.dp)
         )
 
         ExposedDropdownMenu(

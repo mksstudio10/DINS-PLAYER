@@ -396,7 +396,9 @@ private fun PortraitLayout(
                         channel = ch,
                         isActive = ch.id == activeChannelId,
                         epgProgram = epgProgram,
-                        modifier = if (ch.id == focusTargetChannelId) Modifier.focusRequester(channelListFocusRequester) else Modifier
+                        modifier = if (ch.id == focusTargetChannelId) Modifier.focusRequester(channelListFocusRequester) else Modifier,
+                        // D-pad kiri dari channel list portrait menutup panel
+                        onNavigateLeft = { keyboardController?.hide(); onDismiss(); true },
                     ) {
                         keyboardController?.hide()
                         onChannelClick(ch)
