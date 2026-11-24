@@ -19,7 +19,7 @@ class Converters {
 
 @Dao
 interface PlaylistDao {
-    @Query("SELECT * FROM playlists ORDER BY addedAt DESC")
+    @Query("SELECT * FROM playlists ORDER BY sortOrder ASC, addedAt DESC")
     fun observeAll(): Flow<List<Playlist>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -61,6 +61,16 @@ interface PlaylistDao {
 
     @Query("UPDATE playlists SET isActive = :active WHERE id = :id")
     suspend fun setActive(id: Long, active: Boolean)
+
+    @Query("UPDATE playlists SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Long, sortOrder: Int)
+
+    @Transaction
+    suspend fun persistOrder(orderedIds: List<Long>) {
+        orderedIds.forEachIndexed { index, id ->
+            updateSortOrder(id, index)
+        }
+    }
 }
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -85,7 +95,25 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-@Database(entities = [Playlist::class], version = 3, exportSchema = false)
+/**
+ * v3 -> v4: add sortOrder column so user-defined playlist order persists across restarts.
+ */
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE playlists ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+        val cursor = db.query("SELECT id FROM playlists ORDER BY addedAt DESC")
+        var order = 0
+        cursor.use {
+            while (it.moveToNext()) {
+                val id = it.getLong(0)
+                db.execSQL("UPDATE playlists SET sortOrder = ? WHERE id = ?", arrayOf<Any>(order, id))
+                order++
+            }
+        }
+    }
+}
+
+@Database(entities = [Playlist::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
@@ -100,7 +128,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "dins_player.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                     .also { INSTANCE = it }

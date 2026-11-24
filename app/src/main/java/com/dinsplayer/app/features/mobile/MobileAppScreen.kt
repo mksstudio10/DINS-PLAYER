@@ -52,7 +52,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -88,13 +87,6 @@ private data class NavItem(
     val iconUnselected: ImageVector,
 )
 
-// Tab index constants
-private const val TAB_BERANDA  = 0
-private const val TAB_LOKAL    = 1
-private const val TAB_LIVETV   = 2
-private const val TAB_PLAYLIST = 3
-private const val TAB_SETELAN  = 4
-
 @Composable
 private fun localizedNavItems(): List<NavItem> {
     val strings = com.dinsplayer.app.core.i18n.S
@@ -111,28 +103,39 @@ private fun localizedNavItems(): List<NavItem> {
 fun MobileAppScreen() {
     val context = LocalContext.current
     val wide = rememberIsWideNav()
+    val homeTab = remember(wide) { initialTabForLayout(wide) }
     val dao = remember { AppDatabase.get(context).playlistDao() }
-    val playlists by dao.observeAll().collectAsState(initial = emptyList())
-    val hasActivePlaylist = playlists.any { it.isActive }
+    val playlistsState by dao.observeAll().collectAsState(initial = null)
+    val hasActivePlaylist = playlistsState?.any { it.isActive } == true
+    val canOpenLiveTv = playlistsState?.any { it.isActive } ?: true
 
-    var selectedTab by rememberSaveable { mutableIntStateOf(TAB_BERANDA) }
+    // Gunakan remember (bukan rememberSaveable) supaya setelah language/RTL change,
+    // tab selalu mulai dari homeTab yang sesuai layout (TV → Live TV, HP → Beranda).
+    var selectedTab by remember(homeTab) { mutableIntStateOf(homeTab) }
     // playlistId yang dipilih dari PlaylistScreen untuk di-load di LiveTV
     var selectedPlaylistId by remember { mutableStateOf<Long?>(null) }
     var showExitDialog by remember { mutableStateOf(false) }
 
-    // Jika Live TV dipilih tapi tidak ada playlist aktif, arahkan ke Playlist
-    val effectiveTab = if (selectedTab == TAB_LIVETV && !hasActivePlaylist) TAB_PLAYLIST else selectedTab
+    // Jika Live TV dipilih tapi tidak ada playlist aktif (setelah DB selesai dimuat), arahkan ke Playlist
+    val effectiveTab = if (
+        selectedTab == TAB_LIVETV &&
+        playlistsState != null &&
+        !hasActivePlaylist
+    ) {
+        TAB_PLAYLIST
+    } else {
+        selectedTab
+    }
 
     val playerState by Media3Manager.state.collectAsState()
     val currentTitle by Media3Manager.currentTitle.collectAsState()
 
-    // Back dari tab non-Beranda → ke Beranda
-    BackHandler(enabled = selectedTab != TAB_BERANDA) {
-        selectedTab = TAB_BERANDA
+    val backTarget = resolveBackTab(selectedTab, homeTab)
+    BackHandler(enabled = backTarget != null) {
+        backTarget?.let { selectedTab = it }
     }
 
-    // Back dari Beranda → munculkan dialog konfirmasi keluar
-    BackHandler(enabled = selectedTab == TAB_BERANDA) {
+    BackHandler(enabled = backTarget == null) {
         showExitDialog = true
     }
 
@@ -152,7 +155,7 @@ fun MobileAppScreen() {
     }
 
     val onTabSelected: (Int) -> Unit = { index ->
-        if (index == TAB_LIVETV && !hasActivePlaylist) {
+        if (index == TAB_LIVETV && playlistsState != null && !hasActivePlaylist) {
             selectedTab = TAB_PLAYLIST
         } else {
             selectedTab = index
@@ -169,7 +172,7 @@ fun MobileAppScreen() {
                 if (!wide) {
                     DinsBottomNav(
                         selectedIndex = effectiveTab,
-                        hasLiveTv     = hasActivePlaylist,
+                        hasLiveTv     = canOpenLiveTv,
                         onTabSelected = onTabSelected
                     )
                 }
@@ -187,7 +190,7 @@ fun MobileAppScreen() {
                 if (wide) {
                     DinsRailNav(
                         selectedIndex = effectiveTab,
-                        hasLiveTv     = hasActivePlaylist,
+                        hasLiveTv     = canOpenLiveTv,
                         onTabSelected = onTabSelected,
                         onNavigateRight = {
                             when (effectiveTab) {

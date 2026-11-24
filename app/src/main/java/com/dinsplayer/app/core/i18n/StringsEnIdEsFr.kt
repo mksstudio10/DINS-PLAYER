@@ -95,6 +95,10 @@ val EnglishStrings = AppStrings(
     confirmDeletePlaylistPrefix = "Are you sure you want to delete playlist",
     checking = "Checking...",
     downloadM3u = "Download/Save M3U to Device",
+    playlistActivate = "Set Active",
+    reorderPlaylist = "Reorder",
+    reorderHintTv = "Use Up/Down to move, OK to save",
+    moreOptions = "More options",
 
     noPlaylistLoaded = "No active Live TV playlist",
     noChannelFoundShort = "No channels found",
@@ -299,6 +303,10 @@ val IndonesianStrings = AppStrings(
     confirmDeletePlaylistPrefix = "Apakah Anda yakin ingin menghapus playlist",
     checking = "Mengecek...",
     downloadM3u = "Unduh/Simpan M3U ke Perangkat",
+    playlistActivate = "Aktifkan",
+    reorderPlaylist = "Urutan",
+    reorderHintTv = "Tekan Atas/Bawah untuk geser, OK untuk simpan",
+    moreOptions = "Opsi lainnya",
 
     noPlaylistLoaded = "Belum ada playlist Live TV aktif",
     noChannelFoundShort = "Tidak ada saluran",
@@ -503,6 +511,10 @@ val SpanishStrings = AppStrings(
     confirmDeletePlaylistPrefix = "¿Seguro que deseas eliminar la lista",
     checking = "Comprobando...",
     downloadM3u = "Descargar/Guardar M3U en dispositivo",
+    playlistActivate = "Activar",
+    reorderPlaylist = "Ordenar",
+    reorderHintTv = "Arriba/Abajo para mover, OK para guardar",
+    moreOptions = "Más opciones",
 
     noPlaylistLoaded = "No hay lista de TV en vivo activa",
     noChannelFoundShort = "Sin canales",
@@ -707,6 +719,10 @@ val FrenchStrings = AppStrings(
     confirmDeletePlaylistPrefix = "Voulez-vous supprimer la liste",
     checking = "Vérification...",
     downloadM3u = "Télécharger/Enregistrer M3U",
+    playlistActivate = "Activer",
+    reorderPlaylist = "Réorganiser",
+    reorderHintTv = "Haut/Bas pour déplacer, OK pour valider",
+    moreOptions = "Plus d'options",
 
     noPlaylistLoaded = "Aucune liste TV active",
     noChannelFoundShort = "Aucune chaîne",

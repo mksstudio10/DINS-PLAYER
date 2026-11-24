@@ -53,6 +53,10 @@ class AppStringsTest {
             assertTrue(s.epgSourceTitle.isNotBlank())
             assertTrue(s.streamTestTitle.isNotBlank())
             assertTrue(s.pause.isNotBlank())
+            assertTrue(s.playlistActivate.isNotBlank())
+            assertTrue(s.reorderPlaylist.isNotBlank())
+            assertTrue(s.reorderHintTv.isNotBlank())
+            assertTrue(s.moreOptions.isNotBlank())
             assertEquals(AppLanguage.entries.size, s.languageNames.size)
             AppLanguage.entries.forEach { target ->
                 assertTrue(s.languageNames[target]?.isNotBlank() == true)

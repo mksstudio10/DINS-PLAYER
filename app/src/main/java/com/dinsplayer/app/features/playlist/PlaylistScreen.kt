@@ -1,5 +1,6 @@
 package com.dinsplayer.app.features.playlist
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -13,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +28,8 @@ import com.dinsplayer.app.features.mobile.tvFocusRing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,8 +40,12 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -117,13 +126,75 @@ fun PlaylistScreen(
         }
     }
 
-    val filteredPlaylists = remember(playlists, searchQuery) {
-        if (searchQuery.isBlank()) playlists
-        else playlists.filter {
+    val listState = rememberLazyListState()
+    val haptic = LocalHapticFeedback.current
+    var localPlaylists by remember { mutableStateOf(playlists) }
+    var draggingPlaylistId by remember { mutableStateOf<Long?>(null) }
+    var draggingOffsetY by remember { mutableFloatStateOf(0f) }
+    var tvReorderingId by remember { mutableStateOf<Long?>(null) }
+    // Flag: user sudah mengubah urutan, tahan sinkronisasi dari DB sampai persist selesai.
+    var reorderDirty by remember { mutableStateOf(false) }
+
+    // Hanya sinkronisasi dari DB ketika tidak sedang drag/reorder DAN urutan tidak sedang dirty.
+    // Ini mencegah DB lama overwrite urutan lokal yang baru saja diubah user.
+    LaunchedEffect(playlists) {
+        if (draggingPlaylistId == null && tvReorderingId == null && !reorderDirty) {
+            localPlaylists = playlists
+        }
+    }
+
+    // filteredPlaylists untuk tampilan UI — di-recompute setiap kali localPlaylists / searchQuery berubah
+    val filteredPlaylists = remember(localPlaylists, searchQuery) {
+        if (searchQuery.isBlank()) localPlaylists
+        else localPlaylists.filter {
             it.name.contains(searchQuery, ignoreCase = true) ||
             it.source.contains(searchQuery, ignoreCase = true) ||
             it.serverUrl.contains(searchQuery, ignoreCase = true)
         }
+    }
+
+    // FIX: Fungsi ini selalu membaca localPlaylists dan searchQuery LANGSUNG dari MutableState
+    // pada saat dipanggil — bukan dari filteredPlaylists yang stale di closure pointerInput.
+    // pointerInput(playlist.id) tidak re-execute saat recompose, sehingga closure di dalamnya
+    // menangkap referensi lama. Dengan membaca dari MutableState, hasilnya selalu fresh.
+    fun currentFiltered(): List<Playlist> {
+        val snap = localPlaylists          // baca MutableState.value → selalu current
+        val q    = searchQuery             // baca MutableState.value → selalu current
+        return if (q.isBlank()) snap
+               else snap.filter {
+                   it.name.contains(q, ignoreCase = true) ||
+                   it.source.contains(q, ignoreCase = true) ||
+                   it.serverUrl.contains(q, ignoreCase = true)
+               }
+    }
+
+    fun moveVisiblePlaylist(id: Long, delta: Int): Int? {
+        val fresh      = currentFiltered()           // fresh setiap kali dipanggil
+        val currentIdx = fresh.indexOfFirst { it.id == id }
+        if (currentIdx < 0) return null
+        val targetIdx  = (currentIdx + delta).coerceIn(0, fresh.lastIndex)
+        if (targetIdx  == currentIdx) return null
+        val movedFiltered = movePlaylistItem(fresh.map { it.id }, currentIdx, targetIdx)
+        val snap          = localPlaylists           // baca MutableState.value
+        val mergedAllIds  = mergeFilteredOrder(snap.map { it.id }, movedFiltered)
+        val byId          = snap.associateBy { it.id }
+        localPlaylists    = mergedAllIds.mapNotNull { byId[it] }
+        reorderDirty      = true
+        return targetIdx
+    }
+
+    fun commitPlaylistOrder() {
+        val orderedIds = localPlaylists.map { it.id }
+        scope.launch {
+            dao.persistOrder(orderedIds)
+            // Setelah persist selesai baru izinkan DB sync kembali
+            reorderDirty = false
+        }
+    }
+
+    BackHandler(enabled = tvReorderingId != null) {
+        tvReorderingId = null
+        commitPlaylistOrder()
     }
 
     if (playlistToDelete != null) {
@@ -312,6 +383,7 @@ fun PlaylistScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(
                         start = 16.dp,
                         end = 16.dp,
@@ -320,14 +392,110 @@ fun PlaylistScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(filteredPlaylists, key = { it.id }) { playlist ->
-                        PlaylistCard(
-                            playlist  = playlist,
-                            onDelete  = { playlistToDelete = playlist },
-                            onEdit    = { playlistToEdit = playlist; showAddDialog = true },
-                            onToggle  = { scope.launch { dao.setActiveExclusive(playlist.id) } },
-                            onOpen    = { if (playlist.isActive) onPlaylistSelected(playlist.id) }
-                        )
+                    itemsIndexed(filteredPlaylists, key = { _, item -> item.id }) { index, playlist ->
+                        val isDragging = draggingPlaylistId == playlist.id
+                        val isTvReordering = tvReorderingId == playlist.id
+                        val currentMoveUp: () -> Unit = {
+                            moveVisiblePlaylist(playlist.id, -1)?.let { newIdx ->
+                                scope.launch { listState.animateScrollToItem(newIdx) }
+                            }
+                        }
+                        val currentMoveDown: () -> Unit = {
+                            moveVisiblePlaylist(playlist.id, +1)?.let { newIdx ->
+                                scope.launch { listState.animateScrollToItem(newIdx) }
+                            }
+                        }
+                        val cardWrapperModifier = Modifier
+                            .then(if (!isDragging) Modifier.animateItem() else Modifier)
+                            .zIndex(if (isDragging || isTvReordering) 1f else 0f)
+                            .graphicsLayer {
+                                translationY = if (isDragging) draggingOffsetY else 0f
+                                scaleX = if (isDragging) 1.02f else 1f
+                                scaleY = if (isDragging) 1.02f else 1f
+                            }
+                            .then(
+                                if (!isLandscape && filteredPlaylists.size > 1) {
+                                    // Key hanya playlist.id — perubahan urutan tidak restart gesture
+                                    Modifier.pointerInput(playlist.id) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                draggingPlaylistId = playlist.id
+                                                draggingOffsetY = 0f
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                draggingOffsetY += dragAmount.y
+                                                val visible = listState.layoutInfo.visibleItemsInfo
+                                                val currentInfo = visible.firstOrNull { it.key == playlist.id }
+                                                    ?: return@detectDragGesturesAfterLongPress
+                                                val draggedCenter = currentInfo.offset + currentInfo.size / 2f + draggingOffsetY
+                                                val visiblePos = visible.indexOf(currentInfo)
+                                                val above = visible.getOrNull(visiblePos - 1)
+                                                val below = visible.getOrNull(visiblePos + 1)
+                                                if (above != null && draggedCenter < above.offset + above.size / 2f) {
+                                                    if (moveVisiblePlaylist(playlist.id, -1) != null) {
+                                                        // Snap offset ke selisih posisi baru agar item tidak melompat
+                                                        draggingOffsetY += (currentInfo.offset - above.offset).toFloat()
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    }
+                                                } else if (below != null && draggedCenter > below.offset + below.size / 2f) {
+                                                    if (moveVisiblePlaylist(playlist.id, +1) != null) {
+                                                        draggingOffsetY -= (below.offset - currentInfo.offset).toFloat()
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    }
+                                                }
+                                                val viewportTop = listState.layoutInfo.viewportStartOffset.toFloat()
+                                                val viewportBottom = listState.layoutInfo.viewportEndOffset.toFloat()
+                                                if (currentInfo.offset + draggingOffsetY < viewportTop + 72f) {
+                                                    scope.launch { listState.scrollBy(-18f) }
+                                                } else if (currentInfo.offset + currentInfo.size + draggingOffsetY > viewportBottom - 72f) {
+                                                    scope.launch { listState.scrollBy(18f) }
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                draggingPlaylistId = null
+                                                draggingOffsetY = 0f
+                                                commitPlaylistOrder()
+                                            },
+                                            onDragCancel = {
+                                                // Batalkan drag: kembalikan urutan dari snapshot sebelum drag
+                                                draggingPlaylistId = null
+                                                draggingOffsetY = 0f
+                                                reorderDirty = false
+                                                localPlaylists = playlists
+                                            }
+                                        )
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            )
+
+                        Box(modifier = cardWrapperModifier) {
+                            PlaylistCard(
+                                playlist = playlist,
+                                isDragging = isDragging,
+                                canReorder = filteredPlaylists.size > 1,
+                                isTvReordering = isTvReordering,
+                                canMoveUp = index > 0,
+                                canMoveDown = index < filteredPlaylists.lastIndex,
+                                onStartTvReorder = {
+                                    tvReorderingId = playlist.id
+                                    scope.launch { listState.animateScrollToItem(index) }
+                                },
+                                onFinishTvReorder = {
+                                    tvReorderingId = null
+                                    commitPlaylistOrder()
+                                },
+                                onMoveUp = currentMoveUp,
+                                onMoveDown = currentMoveDown,
+                                onDelete = { playlistToDelete = playlist },
+                                onEdit = { playlistToEdit = playlist; showAddDialog = true },
+                                onToggle = { scope.launch { dao.setActiveExclusive(playlist.id) } },
+                                onOpen = { if (playlist.isActive) onPlaylistSelected(playlist.id) }
+                            )
+                        }
                     }
                 }
             }
@@ -404,7 +572,8 @@ fun PlaylistScreen(
             onAddPlaylist = { newPlaylist ->
                 scope.launch {
                     val shouldBeActive = playlists.isEmpty() || newPlaylist.isActive
-                    val insertedId = dao.insert(newPlaylist.copy(isActive = shouldBeActive))
+                    val nextTopOrder = (playlists.minOfOrNull { it.sortOrder } ?: 0) - 1
+                    val insertedId = dao.insert(newPlaylist.copy(isActive = shouldBeActive, sortOrder = nextTopOrder))
                     if (insertedId > 0L && shouldBeActive) {
                         dao.setActiveExclusive(insertedId)
                     }
@@ -434,7 +603,8 @@ fun PlaylistScreen(
                         } else {
                             // Mode tambah baru
                             val shouldBeActive = playlists.isEmpty() || newPlaylist.isActive
-                            val insertedId = dao.insert(newPlaylist.copy(isActive = shouldBeActive))
+                            val nextTopOrder = (playlists.minOfOrNull { it.sortOrder } ?: 0) - 1
+                            val insertedId = dao.insert(newPlaylist.copy(isActive = shouldBeActive, sortOrder = nextTopOrder))
                             if (insertedId > 0L && shouldBeActive) {
                                 dao.setActiveExclusive(insertedId)
                             }
@@ -454,29 +624,75 @@ fun PlaylistScreen(
 private const val MAX_PLAYLIST_BYTES = 20L * 1024 * 1024
 
 @Composable
-private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () -> Unit, onToggle: () -> Unit, onOpen: () -> Unit) {
+private fun PlaylistCard(
+    playlist: Playlist,
+    isDragging: Boolean,
+    canReorder: Boolean,
+    isTvReordering: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onStartTvReorder: () -> Unit,
+    onFinishTvReorder: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+) {
     val wideNav = rememberIsWideNav()
+    val reorderDoneFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTvReordering) {
+        if (isTvReordering) {
+            delay(40L)
+            runCatching { reorderDoneFocusRequester.requestFocus() }
+        }
+    }
+
     val cardModifier = Modifier
         .fillMaxWidth()
         .clip(RoundedCornerShape(14.dp))
-        .background(BgElevated)
-        .border(1.dp, if (playlist.isActive) AccentBlue.copy(alpha = 0.3f) else DividerColor, RoundedCornerShape(14.dp))
+        .background(if (isDragging || isTvReordering) BgSurface else BgElevated)
+        .border(
+            width = if (isDragging || isTvReordering) 2.dp else 1.dp,
+            color = when {
+                isDragging || isTvReordering -> ElectricBlue
+                playlist.isActive -> AccentBlue.copy(alpha = 0.35f)
+                else -> DividerColor
+            },
+            shape = RoundedCornerShape(14.dp)
+        )
         .then(
             // Parent and children were both D-pad targets. Spatial focus then chose between the
             // card and action buttons, skipping actions unpredictably. TV gets leaf targets only.
             if (wideNav) Modifier else Modifier
                 .tvFocusRing(RoundedCornerShape(14.dp))
-                .clickable(enabled = playlist.isActive) { onOpen() }
+                .clickable(enabled = playlist.isActive && !isDragging) { onOpen() }
         )
-        .padding(14.dp)
+        .padding(
+            horizontal = if (wideNav) 14.dp else 12.dp,
+            vertical = if (wideNav) 14.dp else 10.dp
+        )
+
     Row(
         modifier = cardModifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (!wideNav && canReorder) {
+            Icon(
+                imageVector = Icons.Filled.DragIndicator,
+                contentDescription = null,
+                tint = if (isDragging) ElectricBlue else TextMuted.copy(alpha = 0.65f),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+
         // Type badge
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(if (wideNav) 44.dp else 38.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(AccentBlueFaint),
             contentAlignment = Alignment.Center
@@ -489,7 +705,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                 },
                 contentDescription = null,
                 tint   = AccentBlue,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(if (wideNav) 22.dp else 19.dp)
             )
         }
 
@@ -501,7 +717,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                     text  = playlist.name,
                     style = MaterialTheme.typography.titleSmall.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 if (playlist.isActive) {
                     Spacer(Modifier.width(6.dp))
@@ -513,127 +729,290 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                     }
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = playlist.type.name,
-                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
-            )
+            if (wideNav || srcNotBlank(playlist)) {
+                Spacer(Modifier.height(2.dp))
+            }
+            if (wideNav) {
+                Text(
+                    text = if (isTvReordering) com.dinsplayer.app.core.i18n.S.reorderHintTv else playlist.type.name,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = if (isTvReordering) ElectricBlue else TextSecondary
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             val src = playlist.source.ifBlank { playlist.serverUrl }
             if (src.isNotBlank()) {
                 Text(
-                    text = src,
+                    text = if (!wideNav) "${playlist.type.name} - $src" else src,
                     style = MaterialTheme.typography.labelSmall.copy(color = TextMuted),
                     maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            } else if (!wideNav) {
+                Text(
+                    text = playlist.type.name,
+                    style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
                 )
             }
         }
 
         if (wideNav) {
-            // TV needs adjacent, labelled targets. The old stacked icon buttons made D-pad Down
-            // leave the card before Edit/Hapus, and "Toggle" gave no clue about its result.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (playlist.isActive) {
-                    var isBukaFocused by remember { mutableStateOf(false) }
+            if (isTvReordering) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionUp -> {
+                                onMoveUp()
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                onMoveDown()
+                                true
+                            }
+                            Key.Back, Key.Escape -> {
+                                onFinishTvReorder()
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                ) {
+                    var upFocused by remember { mutableStateOf(false) }
                     OutlinedButton(
-                        onClick = onOpen,
-                        modifier = Modifier.onFocusChanged { isBukaFocused = it.isFocused || it.hasFocus },
+                        onClick = onMoveUp,
+                        enabled = canMoveUp,
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .onFocusChanged { upFocused = it.isFocused || it.hasFocus },
                         shape = RoundedCornerShape(10.dp),
                         border = androidx.compose.foundation.BorderStroke(
-                            if (isBukaFocused) 2.5.dp else 1.dp,
-                            if (isBukaFocused) Color.White else AccentBlue
+                            if (upFocused) 2.5.dp else 1.dp,
+                            if (upFocused) Color.White else DividerColor
                         ),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isBukaFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                            containerColor = if (upFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+
+                    var downFocused by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = onMoveDown,
+                        enabled = canMoveDown,
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .onFocusChanged { downFocused = it.isFocused || it.hasFocus },
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            if (downFocused) 2.5.dp else 1.dp,
+                            if (downFocused) Color.White else DividerColor
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (downFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+
+                    var doneFocused by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = onFinishTvReorder,
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .focusRequester(reorderDoneFocusRequester)
+                            .onFocusChanged { doneFocused = it.isFocused || it.hasFocus }
+                            .border(
+                                width = if (doneFocused) 2.5.dp else 0.dp,
+                                color = if (doneFocused) Color.White else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            ),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(com.dinsplayer.app.core.i18n.S.save, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                // TV needs adjacent, labelled targets.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (playlist.isActive) {
+                        var isBukaFocused by remember { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = onOpen,
+                            modifier = Modifier.onFocusChanged { isBukaFocused = it.isFocused || it.hasFocus },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isBukaFocused) 2.5.dp else 1.dp,
+                                if (isBukaFocused) Color.White else AccentBlue
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isBukaFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(com.dinsplayer.app.core.i18n.S.open)
+                        }
+                    }
+                    var isToggleFocused by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = onToggle,
+                        modifier = Modifier.onFocusChanged { isToggleFocused = it.isFocused || it.hasFocus },
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            if (isToggleFocused) 2.5.dp else 1.dp,
+                            if (isToggleFocused) Color.White else if (playlist.isActive) AccentBlue else DividerColor,
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isToggleFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
                         ),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                     ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(
+                            if (playlist.isActive) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
                         Spacer(Modifier.width(6.dp))
-                        Text(com.dinsplayer.app.core.i18n.S.open)
+                        Text(if (playlist.isActive) com.dinsplayer.app.core.i18n.S.active else com.dinsplayer.app.core.i18n.S.playlistActivate)
                     }
-                }
-                var isToggleFocused by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = onToggle,
-                    modifier = Modifier.onFocusChanged { isToggleFocused = it.isFocused || it.hasFocus },
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        if (isToggleFocused) 2.5.dp else 1.dp,
-                        if (isToggleFocused) Color.White else if (playlist.isActive) AccentBlue else DividerColor,
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isToggleFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(
-                        if (playlist.isActive) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (playlist.isActive) com.dinsplayer.app.core.i18n.S.active else com.dinsplayer.app.core.i18n.S.active)
-                }
-                var isEditFocused by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = onEdit,
-                    modifier = Modifier.onFocusChanged { isEditFocused = it.isFocused || it.hasFocus },
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        if (isEditFocused) 2.5.dp else 1.dp,
-                        if (isEditFocused) Color.White else DividerColor
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isEditFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(com.dinsplayer.app.core.i18n.S.edit)
-                }
-                var isDeleteFocused by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = onDelete,
-                    modifier = Modifier.onFocusChanged { isDeleteFocused = it.isFocused || it.hasFocus },
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = ColorError,
-                        containerColor = if (isDeleteFocused) ColorError.copy(alpha = 0.15f) else Color.Transparent
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(
-                        if (isDeleteFocused) 2.5.dp else 1.dp,
-                        if (isDeleteFocused) Color.White else ColorError.copy(alpha = 0.6f)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(com.dinsplayer.app.core.i18n.S.delete)
+                    if (canReorder) {
+                        var isReorderFocused by remember { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = onStartTvReorder,
+                            modifier = Modifier.onFocusChanged { isReorderFocused = it.isFocused || it.hasFocus },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isReorderFocused) 2.5.dp else 1.dp,
+                                if (isReorderFocused) Color.White else DividerColor
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isReorderFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(com.dinsplayer.app.core.i18n.S.reorderPlaylist)
+                        }
+                    }
+                    var isEditFocused by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = onEdit,
+                        modifier = Modifier.onFocusChanged { isEditFocused = it.isFocused || it.hasFocus },
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            if (isEditFocused) 2.5.dp else 1.dp,
+                            if (isEditFocused) Color.White else DividerColor
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isEditFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(com.dinsplayer.app.core.i18n.S.edit)
+                    }
+                    var isDeleteFocused by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = onDelete,
+                        modifier = Modifier.onFocusChanged { isDeleteFocused = it.isFocused || it.hasFocus },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = ColorError,
+                            containerColor = if (isDeleteFocused) ColorError.copy(alpha = 0.15f) else Color.Transparent
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            if (isDeleteFocused) 2.5.dp else 1.dp,
+                            if (isDeleteFocused) Color.White else ColorError.copy(alpha = 0.6f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(com.dinsplayer.app.core.i18n.S.delete)
+                    }
                 }
             }
         } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            var showOverflowMenu by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onToggle, modifier = Modifier.size(44.dp)) {
                     Icon(
                         imageVector = if (playlist.isActive) Icons.Filled.ToggleOn else Icons.Filled.ToggleOff,
-                        contentDescription = if (playlist.isActive) "Playlist aktif" else "Aktifkan playlist",
+                        contentDescription = if (playlist.isActive) com.dinsplayer.app.core.i18n.S.active else com.dinsplayer.app.core.i18n.S.playlistActivate,
                         tint = if (playlist.isActive) AccentBlue else TextMuted,
                         modifier = Modifier.size(28.dp)
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                Box {
+                    IconButton(
+                        onClick = { showOverflowMenu = true },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = com.dinsplayer.app.core.i18n.S.moreOptions,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Filled.Delete, contentDescription = com.dinsplayer.app.core.i18n.S.delete, tint = ColorError.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false },
+                        containerColor = BgDialog
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(com.dinsplayer.app.core.i18n.S.edit, color = TextPrimary) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Edit,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                showOverflowMenu = false
+                                onEdit()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(com.dinsplayer.app.core.i18n.S.delete, color = ColorError) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = null,
+                                    tint = ColorError,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                showOverflowMenu = false
+                                onDelete()
+                            }
+                        )
                     }
                 }
             }
         }
     }
 }
+
+private fun srcNotBlank(playlist: Playlist): Boolean =
+    playlist.source.isNotBlank() || playlist.serverUrl.isNotBlank()
 
 @Composable
 private fun AddPlaylistDialog(
@@ -1405,7 +1784,8 @@ private fun AddPlaylistDialog(
                                     userAgent     = finalUa,
                                     customHeaders = customHeaders.trim(),
                                     isActive      = playlistToEdit?.isActive ?: true,
-                                    addedAt       = playlistToEdit?.addedAt ?: System.currentTimeMillis()
+                                    addedAt       = playlistToEdit?.addedAt ?: System.currentTimeMillis(),
+                                    sortOrder     = playlistToEdit?.sortOrder ?: 0
                                 ))
                             }
                         },

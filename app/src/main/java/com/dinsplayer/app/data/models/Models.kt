@@ -24,6 +24,7 @@ data class Playlist(
     val customHeaders: String = "",   // format: "Key: Value\nKey2: Value2"
     val addedAt: Long = System.currentTimeMillis(),
     val lastRefreshed: Long = 0L,
+    val sortOrder: Int = 0,
 )
 
 // ── Channel (IPTV live) ────────────────────────────────────────────────────

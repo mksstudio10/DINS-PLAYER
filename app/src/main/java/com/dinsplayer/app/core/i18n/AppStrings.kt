@@ -146,6 +146,10 @@ data class AppStrings(
     val confirmDeletePlaylistPrefix: String,
     val checking: String,
     val downloadM3u: String,
+    val playlistActivate: String,
+    val reorderPlaylist: String,
+    val reorderHintTv: String,
+    val moreOptions: String,
 
     // Player & Channel Menu
     val noPlaylistLoaded: String,
