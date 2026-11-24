@@ -95,13 +95,17 @@ private const val TAB_LIVETV   = 2
 private const val TAB_PLAYLIST = 3
 private const val TAB_SETELAN  = 4
 
-private val navItems = listOf(
-    NavItem("Beranda",  Icons.Filled.Home,              Icons.Outlined.Home),
-    NavItem("Lokal",    Icons.Filled.FolderOpen,        Icons.Outlined.FolderOpen),
-    NavItem("Live TV",  Icons.Filled.Tv,                Icons.Outlined.Tv),
-    NavItem("Playlist", Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
-    NavItem("Setelan",  Icons.Filled.Settings,          Icons.Outlined.Settings),
-)
+@Composable
+private fun localizedNavItems(): List<NavItem> {
+    val strings = com.dinsplayer.app.core.i18n.S
+    return listOf(
+        NavItem(strings.navHome,     Icons.Filled.Home,              Icons.Outlined.Home),
+        NavItem(strings.navLocal,    Icons.Filled.FolderOpen,        Icons.Outlined.FolderOpen),
+        NavItem(strings.navLiveTv,   Icons.Filled.Tv,                Icons.Outlined.Tv),
+        NavItem(strings.navPlaylist, Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
+        NavItem(strings.navSettings, Icons.Filled.Settings,          Icons.Outlined.Settings),
+    )
+}
 
 @Composable
 fun MobileAppScreen() {
@@ -266,7 +270,7 @@ private fun DinsBottomNav(
                     shape = navShape
                 )
         ) {
-            navItems.forEachIndexed { index, item ->
+            localizedNavItems().forEachIndexed { index, item ->
                 val selected = selectedIndex == index
                 val isLiveTv = index == TAB_LIVETV
                 val enabled  = !isLiveTv || hasLiveTv
@@ -322,7 +326,7 @@ private fun DinsRailNav(
         verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        navItems.forEachIndexed { index, item ->
+        localizedNavItems().forEachIndexed { index, item ->
             val selected = selectedIndex == index
             val isLiveTv = index == TAB_LIVETV
             val enabled  = !isLiveTv || hasLiveTv
@@ -445,7 +449,7 @@ private fun ExitConfirmDialog(
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    text = "Keluar Aplikasi?",
+                    text = com.dinsplayer.app.core.i18n.S.exitAppTitle,
                     style = MaterialTheme.typography.titleMedium.copy(
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
@@ -456,7 +460,7 @@ private fun ExitConfirmDialog(
                 Spacer(Modifier.height(8.dp))
 
                 Text(
-                    text = "Apakah Anda yakin ingin keluar dari DINS Player?",
+                    text = com.dinsplayer.app.core.i18n.S.exitAppMessage,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 13.sp,
@@ -489,7 +493,7 @@ private fun ExitConfirmDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Batal",
+                            text = com.dinsplayer.app.core.i18n.S.cancel,
                             color = if (isBatalFocused) Color.White else Color.White.copy(alpha = 0.85f),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp
@@ -514,7 +518,7 @@ private fun ExitConfirmDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Keluar",
+                            text = com.dinsplayer.app.core.i18n.S.exit,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp

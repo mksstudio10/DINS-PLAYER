@@ -640,7 +640,7 @@ fun MultiStreamScreen(
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = "Layar Terkunci - Ketuk untuk Buka",
+                    text = com.dinsplayer.app.core.i18n.S.screenLockedHint,
                     color = TextPrimary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -665,7 +665,7 @@ fun MultiStreamScreen(
             channels = allChannels,
             activeChannelId = slots.getOrNull(lastPickerSlot)?.channel?.id ?: "",
             isLandscape = isLandscape,
-            headerLabel = "Pilih Saluran - Slot ${lastPickerSlot + 1}",
+            headerLabel = com.dinsplayer.app.core.i18n.S.fmtPickSlot(lastPickerSlot + 1),
             onChannelClick = { ch ->
                 MultiStreamManager.playChannel(lastPickerSlot, ch)
                 if (MultiStreamManager.activeAudioSlotIndex.value == null) {
@@ -1016,19 +1016,19 @@ private fun SlotEmptyCard(
             ) {
                 Icon(
                     Icons.Default.Add,
-                    contentDescription = "Tambah saluran di Slot ${slotIndex + 1}",
+                    contentDescription = com.dinsplayer.app.core.i18n.S.fmtSlotN(slotIndex + 1),
                     tint = AccentBlue,
                     modifier = Modifier.size(20.dp),
                 )
             }
             Text(
-                text = "Slot ${slotIndex + 1}",
+                text = com.dinsplayer.app.core.i18n.S.fmtSlotN(slotIndex + 1),
                 color = TextPrimary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = if (hasChannelsAvailable) "Ketuk untuk tambah saluran" else "Buka daftar Live TV dulu",
+                text = if (hasChannelsAvailable) com.dinsplayer.app.core.i18n.S.tapToAddChannel else com.dinsplayer.app.core.i18n.S.openLiveTvFirst,
                 color = TextMuted,
                 fontSize = 9.sp,
                 textAlign = TextAlign.Center,
@@ -1085,13 +1085,13 @@ private fun SlotErrorCard(
             ) {
                 CompactActionPill(
                     icon = Icons.Default.Refresh,
-                    label = "Coba Lagi",
+                    label = com.dinsplayer.app.core.i18n.S.retry,
                     accent = true,
                     onClick = onRetry,
                 )
                 CompactActionPill(
                     icon = Icons.Default.SwapHoriz,
-                    label = "Ganti",
+                    label = com.dinsplayer.app.core.i18n.S.replace,
                     accent = false,
                     onClick = onReplace,
                 )
@@ -1205,12 +1205,12 @@ fun MultiHud(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Kembali",
+                        contentDescription = com.dinsplayer.app.core.i18n.S.back,
                         tint = TextPrimary,
                     )
                 }
                 Text(
-                    text = "Multi TV",
+                    text = com.dinsplayer.app.core.i18n.S.multiTvTitle,
                     color = TextPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
@@ -1244,7 +1244,7 @@ fun MultiHud(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text(
-                                text = "Slot ${selectedSlot.slotIndex + 1}",
+                                text = com.dinsplayer.app.core.i18n.S.fmtSlotN(selectedSlot.slotIndex + 1),
                                 color = AccentBlue,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1298,7 +1298,7 @@ fun MultiHud(
                 ) {
                     Icon(
                         Icons.Default.Lock,
-                        contentDescription = "Kunci Layar",
+                        contentDescription = com.dinsplayer.app.core.i18n.S.lockScreen,
                         tint = TextPrimary,
                         modifier = Modifier.size(20.dp),
                     )
@@ -1485,14 +1485,14 @@ fun MultiHud(
                                     modifier = Modifier.size(12.dp),
                                 )
                                 Text(
-                                    text = "Slot ${i + 1}",
+                                    text = com.dinsplayer.app.core.i18n.S.fmtSlotN(i + 1),
                                     fontSize = 10.sp,
                                     fontWeight = if (isAudio) FontWeight.SemiBold else FontWeight.Medium,
                                     color = if (isAudio) AccentBlue else TextPrimary,
                                     maxLines = 1,
                                 )
                                 Text(
-                                    text = slotChannelName ?: "Kosong",
+                                    text = slotChannelName ?: com.dinsplayer.app.core.i18n.S.emptySlot,
                                     fontSize = 9.sp,
                                     color = if (isAudio) TextPrimary else TextMuted,
                                     maxLines = 1,
@@ -1579,9 +1579,14 @@ private fun DockGlobalControlsRow(
                 MultiLayoutMode.FOCUS_3 -> Icons.Default.Dashboard
                 MultiLayoutMode.GRID_4 -> Icons.Default.GridView
             }
+            val modeLabel = when (mode) {
+                MultiLayoutMode.SPLIT_2 -> com.dinsplayer.app.core.i18n.S.layoutSplit2
+                MultiLayoutMode.FOCUS_3 -> com.dinsplayer.app.core.i18n.S.layoutFocus3
+                MultiLayoutMode.GRID_4 -> com.dinsplayer.app.core.i18n.S.layoutGrid4
+            }
             DockToggleChip(
                 icon = modeIcon,
-                label = mode.label,
+                label = modeLabel,
                 active = active,
                 onClick = { onSelectLayout(mode) },
                 focusRequester = if (idx == 0) firstItemFr else null,
@@ -1595,7 +1600,7 @@ private fun DockGlobalControlsRow(
             } else {
                 Icons.AutoMirrored.Filled.VolumeUp
             },
-            label = "Bisu Semua",
+            label = com.dinsplayer.app.core.i18n.S.muteAll,
             active = activeAudioSlot == null,
             onClick = onMuteAll,
             upTarget = upTarget,
@@ -1637,7 +1642,7 @@ private fun SelectedSlotActionChips(
             } else {
                 Icons.AutoMirrored.Filled.VolumeOff
             },
-            label = if (slotState.isAudioActive) "Bisukan" else "Audio",
+            label = if (slotState.isAudioActive) com.dinsplayer.app.core.i18n.S.mute else com.dinsplayer.app.core.i18n.S.audio,
             active = slotState.isAudioActive,
             onClick = onToggleAudio,
             focusRequester = firstItemFr,
@@ -1646,7 +1651,7 @@ private fun SelectedSlotActionChips(
         )
         DockToggleChip(
             icon = Icons.Default.SwapHoriz,
-            label = "Ganti",
+            label = com.dinsplayer.app.core.i18n.S.replace,
             active = false,
             onClick = onReplace,
             upTarget = upTarget,
@@ -1655,7 +1660,7 @@ private fun SelectedSlotActionChips(
         if (showMakePrimary) {
             DockToggleChip(
                 icon = Icons.Default.Star,
-                label = "Utama",
+                label = com.dinsplayer.app.core.i18n.S.primary,
                 active = false,
                 onClick = onMakePrimary,
                 upTarget = upTarget,
@@ -1664,7 +1669,7 @@ private fun SelectedSlotActionChips(
         }
         DockToggleChip(
             icon = Icons.Default.AspectRatio,
-            label = if (slotState.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Zoom" else "Fit",
+            label = if (slotState.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) com.dinsplayer.app.core.i18n.S.zoom else com.dinsplayer.app.core.i18n.S.fit,
             active = slotState.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
             onClick = onToggleResize,
             upTarget = upTarget,
@@ -1672,7 +1677,7 @@ private fun SelectedSlotActionChips(
         )
         DockToggleChip(
             icon = Icons.Default.Fullscreen,
-            label = "Layar Penuh",
+            label = com.dinsplayer.app.core.i18n.S.fullscreen,
             active = false,
             onClick = onFullscreen,
             upTarget = upTarget,
@@ -1680,7 +1685,7 @@ private fun SelectedSlotActionChips(
         )
         DockToggleChip(
             icon = Icons.Default.Close,
-            label = "Tutup",
+            label = com.dinsplayer.app.core.i18n.S.close,
             active = false,
             onClick = onClose,
             upTarget = upTarget,
@@ -1693,15 +1698,15 @@ private fun SelectedSlotActionChips(
 fun SlotExitConfirmDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Keluar Multi TV?") },
-        text = { Text("Semua siaran pada Multi TV akan dihentikan.") },
+        title = { Text(com.dinsplayer.app.core.i18n.S.exitMultiTvTitle) },
+        text = { Text(com.dinsplayer.app.core.i18n.S.exitMultiTvMessage) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Keluar", color = ColorError, fontWeight = FontWeight.SemiBold)
+                Text(com.dinsplayer.app.core.i18n.S.exit, color = ColorError, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Batal") }
+            TextButton(onClick = onDismiss) { Text(com.dinsplayer.app.core.i18n.S.cancel) }
         },
         containerColor = BgDialog,
     )

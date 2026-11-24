@@ -56,11 +56,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.filled.Language
 import androidx.datastore.preferences.core.edit
 import com.dinsplayer.app.core.epg.EpgManager
 import com.dinsplayer.app.core.epg.EpgUrlStatus
 import com.dinsplayer.app.core.epg.EpgUrlValidator
+import com.dinsplayer.app.core.i18n.AppLanguage
+import com.dinsplayer.app.core.i18n.AppLocaleState
+import com.dinsplayer.app.core.i18n.S
 import com.dinsplayer.app.core.player.Media3Manager
+import com.dinsplayer.app.data.KEY_APP_LANGUAGE
 import com.dinsplayer.app.data.KEY_AUDIO_SYNC
 import com.dinsplayer.app.data.KEY_BUFFER_SIZE
 import com.dinsplayer.app.data.KEY_EPG_URLS
@@ -72,6 +77,8 @@ import com.dinsplayer.app.data.KEY_WALLPAPER_CUSTOM_URI
 import com.dinsplayer.app.data.KEY_WALLPAPER_MODE
 import com.dinsplayer.app.data.PlayerSettings
 import com.dinsplayer.app.data.settingsDataStore
+import com.dinsplayer.app.features.mobile.localizedHint
+import com.dinsplayer.app.features.mobile.localizedLabel
 import com.dinsplayer.app.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -128,13 +135,21 @@ fun SetelanScreen(
         } catch (e: Exception) {
             android.widget.Toast.makeText(
                 context,
-                "Perangkat ini tidak punya pemilih foto",
+                S.noPhotoPickerToast,
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
     }
 
-    val bufferLabels = listOf("16 detik", "32 detik", "64 detik")
+    val bufferLabels = listOf(
+        S.fmtBufferSeconds(16),
+        S.fmtBufferSeconds(32),
+        S.fmtBufferSeconds(64),
+    )
+    val currentLanguage = remember(prefs?.get(KEY_APP_LANGUAGE)) {
+        AppLanguage.fromCode(prefs?.get(KEY_APP_LANGUAGE))
+    }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var showEpgDialog by remember { mutableStateOf(false) }
     var showTosDialog by remember { mutableStateOf(false) }
     var showCustomThemeDialog by remember { mutableStateOf(false) }
@@ -165,7 +180,7 @@ fun SetelanScreen(
         ) {
             Column {
                 Text(
-                    text = "Setelan",
+                    text = S.settingsTitle,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
@@ -174,7 +189,7 @@ fun SetelanScreen(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "Preferensi pemutar dan konfigurasi aplikasi",
+                    text = S.settingsSubtitle,
                     style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary, fontSize = 13.sp)
                 )
             }
@@ -189,14 +204,11 @@ fun SetelanScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Group 1: Pemutaran & Video
-            SettingsGroup(title = "Pemutaran & Video") {
+            SettingsGroup(title = S.groupPlayback) {
                 SettingSwitchRow(
                     icon = Icons.Filled.Memory,
-                    title = "Akselerasi Perangkat Keras",
-                    subtitle = if (hwDecoding)
-                        "Decoder GPU. Matikan jika video rusak/pecah di perangkat tertentu"
-                    else
-                        "Decoder software aktif. Berlaku setelah aplikasi dimulai ulang",
+                    title = S.hwAccelTitle,
+                    subtitle = if (hwDecoding) S.hwAccelOnSub else S.hwAccelOffSub,
                     checked = hwDecoding,
                     onCheckedChange = { v ->
                         PlayerSettings.updateHwDecode(v)
@@ -213,8 +225,8 @@ fun SetelanScreen(
 
                 SettingSliderRow(
                     icon = Icons.Filled.Speed,
-                    title = "Buffer Streaming",
-                    subtitle = "Durasi pra-unduh video. Berlaku setelah aplikasi dimulai ulang",
+                    title = S.bufferTitle,
+                    subtitle = S.bufferSub,
                     valueText = bufferLabels[bufferSize.coerceIn(0, 2)],
                     sliderValue = bufferSize.toFloat(),
                     valueRange = 0f..2f,
@@ -235,9 +247,9 @@ fun SetelanScreen(
 
                 SettingSliderRow(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    title = "Sinkronisasi Audio",
-                    subtitle = "Sesuaikan keterlambatan audio terhadap video",
-                    valueText = if (audioSync == 0f) "Normal" else "${audioSync.toInt()} ms",
+                    title = S.audioSyncTitle,
+                    subtitle = S.audioSyncSub,
+                    valueText = if (audioSync == 0f) S.normal else "${audioSync.toInt()} ms",
                     sliderValue = audioSync,
                     valueRange = -500f..500f,
                     steps = 0,
@@ -256,7 +268,25 @@ fun SetelanScreen(
             }
 
             // Group 2: Tampilan
-            SettingsGroup(title = "Tampilan") {
+            SettingsGroup(title = S.groupDisplay) {
+                SettingClickableRow(
+                    icon = Icons.Filled.Language,
+                    title = S.languageTitle,
+                    subtitle = run {
+                        val localized = S.languageNames[currentLanguage] ?: currentLanguage.englishName
+                        if (localized == currentLanguage.nativeName) currentLanguage.nativeName
+                        else "${currentLanguage.nativeName} ($localized)"
+                    },
+                    trailingText = S.change,
+                    onClick = { showLanguageDialog = true }
+                )
+
+                HorizontalDivider(
+                    color = DividerColor,
+                    thickness = 0.8.dp,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp)
+                )
+
                 ThemeColorSection(
                     selectedPresetKey = themePresetKey,
                     customArgb = customThemeArgb,
@@ -289,8 +319,8 @@ fun SetelanScreen(
                             WallpaperMode.CUSTOM -> Icons.Filled.Image
                             WallpaperMode.OFF -> Icons.Filled.Block
                         },
-                        title = mode.label,
-                        subtitle = mode.hint,
+                        title = mode.localizedLabel(),
+                        subtitle = mode.localizedHint(),
                         selected = wallpaperMode == mode,
                         onClick = {
                             if (mode == WallpaperMode.CUSTOM && customWallpaper == null) {
@@ -310,10 +340,10 @@ fun SetelanScreen(
                     )
                     SettingClickableRow(
                         icon = Icons.Filled.PhotoLibrary,
-                        title = "Ganti Foto Latar",
-                        subtitle = if (customWallpaper == null) "Belum ada foto dipilih"
-                        else "Foto tersimpan di perangkat Anda",
-                        trailingText = if (customWallpaper == null) "Pilih" else "Ganti",
+                        title = S.changeWallpaperTitle,
+                        subtitle = if (customWallpaper == null) S.noPhotoSelected
+                        else S.photoSaved,
+                        trailingText = if (customWallpaper == null) S.pick else S.change,
                         onClick = { launchWallpaperPicker() }
                     )
                 }
@@ -322,18 +352,18 @@ fun SetelanScreen(
             // Group 3: Panduan EPG
             // The "Proteksi Anti-Sniffing (MITM)" switch was removed: it wrote a preference
             // nothing ever read, and PlayerState.SecurityError was never emitted anywhere.
-            SettingsGroup(title = "Panduan EPG") {
+            SettingsGroup(title = S.groupEpg) {
                 SettingClickableRow(
                     icon = Icons.Filled.Tv,
-                    title = "Sumber EPG (XMLTV)",
+                    title = S.epgSourceTitle,
                     subtitle = EpgUrlValidator.summarizeEpgStatuses(epgUrls, epgStatuses),
-                    trailingText = "Atur & Cek",
+                    trailingText = S.manageAndCheck,
                     onClick = { showEpgDialog = true }
                 )
             }
 
             // Group 4: Informasi Aplikasi
-            SettingsGroup(title = "Tentang Aplikasi") {
+            SettingsGroup(title = S.groupAbout) {
                 // Header Profil Aplikasi
                 Row(
                     modifier = Modifier
@@ -369,7 +399,7 @@ fun SetelanScreen(
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = "Pemutar Media & IPTV Modern",
+                            text = S.appTagline,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = TextSecondary,
                                 fontSize = 12.sp
@@ -400,9 +430,9 @@ fun SetelanScreen(
 
                 SettingClickableRow(
                     icon = Icons.Filled.Policy,
-                    title = "Ketentuan Layanan & Hak Cipta",
-                    subtitle = "DINS Player murni pemutar media tanpa konten bawaan",
-                    trailingText = "Buka",
+                    title = S.tosTitle,
+                    subtitle = S.tosSub,
+                    trailingText = S.open,
                     onClick = { showTosDialog = true }
                 )
 
@@ -432,7 +462,7 @@ fun SetelanScreen(
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "Penafian Konten & Hak Cipta",
+                            text = S.disclaimerTitle,
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = TextPrimary,
                                 fontWeight = FontWeight.SemiBold,
@@ -441,7 +471,7 @@ fun SetelanScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "DINS Player adalah aplikasi pemutar media mandiri dan TIDAK menyediakan, menyiarkan, atau menyertakan konten media atau playlist apa pun. Seluruh konten berasal dari input mandiri pengguna.",
+                            text = S.disclaimerBody,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = TextSecondary,
                                 fontSize = 11.sp,
@@ -452,6 +482,18 @@ fun SetelanScreen(
                 }
             }
         }
+    }
+
+    if (showLanguageDialog) {
+        LanguagePickerDialog(
+            selectedLanguage = currentLanguage,
+            onDismiss = { showLanguageDialog = false },
+            onSelectLanguage = { chosen ->
+                AppLocaleState.currentLanguage = chosen
+                scope.launch { ds.edit { it[KEY_APP_LANGUAGE] = chosen.code } }
+                showLanguageDialog = false
+            }
+        )
     }
 
     if (showEpgDialog) {
@@ -1035,7 +1077,7 @@ private fun EpgManagementDialog(
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Sumber EPG (XMLTV)",
+                            text = S.epgSourceTitle,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 color = TextPrimary,
                                 fontWeight = FontWeight.Bold,
@@ -1077,13 +1119,13 @@ private fun EpgManagementDialog(
                         } else {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Cek Semua",
+                                contentDescription = S.checkAll,
                                 tint = ElectricBlue,
                                 modifier = Modifier.size(15.dp)
                             )
                         }
                         Text(
-                            text = if (isCheckingAny) "Mengecek" else "Cek Semua",
+                            text = if (isCheckingAny) S.checkingLabel else S.checkAll,
                             color = TextPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1109,7 +1151,7 @@ private fun EpgManagementDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Belum ada URL EPG. Tambahkan URL XMLTV di bawah untuk mulai mengecek.",
+                                text = S.epgDialogSubEmpty,
                                 style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
@@ -1129,8 +1171,8 @@ private fun EpgManagementDialog(
                             val statusText = when (status) {
                                 is EpgUrlStatus.Active -> status.detail
                                 is EpgUrlStatus.Error -> status.reason
-                                EpgUrlStatus.Checking -> "Memeriksa koneksi & XMLTV..."
-                                EpgUrlStatus.Unknown -> "Belum diperiksa"
+                                EpgUrlStatus.Checking -> S.checkingConnection
+                                EpgUrlStatus.Unknown -> S.notCheckedYet
                             }
                             // Warna teks status dijaga kontras >= 4.5:1 di atas BgSurface
                             val statusColor = when (status) {
@@ -1166,7 +1208,7 @@ private fun EpgManagementDialog(
                                         )
                                         is EpgUrlStatus.Active -> Icon(
                                             imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = "Aktif",
+                                            contentDescription = S.epgValidLabel,
                                             tint = Color(0xFF69F0AE),
                                             modifier = Modifier.size(17.dp)
                                         )
@@ -1178,7 +1220,7 @@ private fun EpgManagementDialog(
                                         )
                                         EpgUrlStatus.Unknown -> Icon(
                                             imageVector = Icons.AutoMirrored.Filled.HelpOutline,
-                                            contentDescription = "Belum dicek",
+                                            contentDescription = S.notCheckedYet,
                                             tint = TextSecondary,
                                             modifier = Modifier.size(17.dp)
                                         )
@@ -1224,7 +1266,7 @@ private fun EpgManagementDialog(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Refresh,
-                                        contentDescription = "Cek URL EPG",
+                                        contentDescription = S.checkAll,
                                         tint = if (isCheckingRow) TextMuted else ElectricBlue,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -1255,7 +1297,7 @@ private fun EpgManagementDialog(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
-                                        contentDescription = "Hapus",
+                                        contentDescription = S.delete,
                                         tint = Color(0xFFFF8A80),
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -1430,7 +1472,7 @@ private fun EpgManagementDialog(
                             containerColor = if (isCancelFocused) Color.White.copy(alpha = 0.14f) else Color.Transparent
                         )
                     ) {
-                        Text("Batal", fontWeight = if (isCancelFocused) FontWeight.Bold else FontWeight.Normal)
+                        Text(S.cancel, fontWeight = if (isCancelFocused) FontWeight.Bold else FontWeight.Normal)
                     }
 
                     var isSaveFocused by remember { mutableStateOf(false) }
@@ -1465,7 +1507,7 @@ private fun EpgManagementDialog(
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
                     ) {
-                        Text("Simpan", color = Color.White, fontWeight = if (isSaveFocused) FontWeight.Bold else FontWeight.Normal)
+                        Text(S.save, color = Color.White, fontWeight = if (isSaveFocused) FontWeight.Bold else FontWeight.Normal)
                     }
                 }
             }
@@ -1536,7 +1578,7 @@ private fun TermsOfServiceDialog(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Ketentuan Layanan & Hak Cipta",
+                                text = S.tosTitle,
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     color = TextPrimary,
                                     fontWeight = FontWeight.Bold,
@@ -1544,7 +1586,7 @@ private fun TermsOfServiceDialog(
                                 )
                             )
                             Text(
-                                text = "Terms of Service & Content Disclaimer",
+                                text = S.tosDialogSub,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = TextSecondary,
                                     fontSize = 12.sp
@@ -1599,7 +1641,7 @@ private fun TermsOfServiceDialog(
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
                     ) {
-                        Text("Saya Mengerti & Tutup", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(S.tosAcceptClose, color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1643,11 +1685,11 @@ private fun ThemeColorSection(
 ) {
     val activePreset = ThemePreset.fromKey(selectedPresetKey)
     val activeLabel = if (selectedPresetKey == ThemePreset.CUSTOM_KEY) {
-        "Kustom (${ThemeColorMath.formatHex(customArgb)})"
+        "${S.themeCustomLabel} (${ThemeColorMath.formatHex(customArgb)})"
     } else {
         val preset = activePreset ?: ThemePreset.BLUE
-        val suffix = if (preset == ThemePreset.BLUE) " (Default)" else ""
-        "${preset.label}$suffix"
+        val suffix = if (preset == ThemePreset.BLUE) S.themeDefaultSuffix else ""
+        "${preset.localizedLabel()}$suffix"
     }
 
     Column(
@@ -1664,7 +1706,7 @@ private fun ThemeColorSection(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Warna Tema Dasar",
+                    text = S.themeColorTitle,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = TextPrimary,
                         fontWeight = FontWeight.Medium,
@@ -1673,7 +1715,7 @@ private fun ThemeColorSection(
                 )
                 Spacer(Modifier.height(1.dp))
                 Text(
-                    text = "Aktif: $activeLabel",
+                    text = "${S.themeActivePrefix} $activeLabel",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = TextSecondary,
                         fontSize = 11.sp
@@ -1707,7 +1749,7 @@ private fun ThemeColorSection(
             ThemePreset.entries.forEach { preset ->
                 val isSelected = selectedPresetKey == preset.key
                 ThemeSwatchChip(
-                    label = preset.label,
+                    label = preset.localizedLabel(),
                     swatchColor = Color(preset.argb),
                     selected = isSelected,
                     onClick = { onSelectPreset(preset) }
@@ -1716,7 +1758,7 @@ private fun ThemeColorSection(
 
             val isCustom = selectedPresetKey == ThemePreset.CUSTOM_KEY
             ThemeSwatchChip(
-                label = "Kustom",
+                label = S.themeCustomLabel,
                 swatchColor = if (isCustom) Color(customArgb) else null,
                 selected = isCustom,
                 onClick = onOpenCustomPicker
@@ -1883,7 +1925,7 @@ private fun CustomThemeColorDialog(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Pilih Warna Tema Kustom",
+                                text = S.themeCustomDialogTitle,
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     color = TextPrimary,
                                     fontWeight = FontWeight.Bold,
@@ -1891,7 +1933,7 @@ private fun CustomThemeColorDialog(
                                 )
                             )
                             Text(
-                                text = "Geser warna atau masukkan kode hex #RRGGBB",
+                                text = S.themeCustomDialogSub,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = TextSecondary,
                                     fontSize = 11.sp
@@ -1920,7 +1962,7 @@ private fun CustomThemeColorDialog(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Pratinjau Latar & Aksen",
+                                text = S.themePreviewTitle,
                                 color = TextPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -1940,7 +1982,7 @@ private fun CustomThemeColorDialog(
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Text(
-                                text = "Aktif",
+                                text = S.themePreviewActive,
                                 color = previewTokens.accentBright,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -1953,7 +1995,7 @@ private fun CustomThemeColorDialog(
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Text(
-                                text = "Putar",
+                                text = S.themePreviewPlay,
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -1963,7 +2005,7 @@ private fun CustomThemeColorDialog(
 
                     // Slider Hue (mendukung sentuh & D-pad Kiri/Kanan)
                     ThemeChannelSlider(
-                        label = "Spektrum Warna (Hue)",
+                        label = S.themeHueLabel,
                         valueText = "${hue.toInt()}°",
                         value = hue,
                         valueRange = 0f..360f,
@@ -1981,7 +2023,7 @@ private fun CustomThemeColorDialog(
                         )
                     )
                     ThemeChannelSlider(
-                        label = "Kepekatan (Saturasi)",
+                        label = S.themeSatLabel,
                         valueText = "${(saturation * 100).toInt()}%",
                         value = saturation,
                         valueRange = 0.25f..1f,
@@ -2010,7 +2052,7 @@ private fun CustomThemeColorDialog(
                             },
                             readOnly = readOnly,
                             interactionSource = interactionSource,
-                            label = { Text("Kode Hex", fontSize = 12.sp) },
+                            label = { Text(S.themeHexLabel, fontSize = 12.sp) },
                             placeholder = { Text("#2979FF", color = TextMuted) },
                             singleLine = true,
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -2021,7 +2063,7 @@ private fun CustomThemeColorDialog(
                             ),
                             isError = hexError,
                             supportingText = if (hexError) {
-                                { Text("Gunakan 6 digit hex, misalnya #2979FF", fontSize = 11.sp) }
+                                { Text(S.themeHexError, fontSize = 11.sp) }
                             } else null,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = previewTokens.accentBright,
@@ -2048,14 +2090,14 @@ private fun CustomThemeColorDialog(
                             onClick = onResetDefault,
                             modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
                         ) {
-                            Text("Reset Biru", color = TextSecondary, fontSize = 12.sp)
+                            Text(S.themeResetBlue, color = TextSecondary, fontSize = 12.sp)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
                                 onClick = onDismiss,
                                 modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
                             ) {
-                                Text("Batal", color = TextSecondary)
+                                Text(S.cancel, color = TextSecondary)
                             }
                             Button(
                                 onClick = {
@@ -2068,7 +2110,7 @@ private fun CustomThemeColorDialog(
                                     .focusRequester(applyFocusRequester)
                                     .tvFocusRing(RoundedCornerShape(10.dp))
                             ) {
-                                Text("Terapkan", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text(S.apply, color = Color.White, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -2079,6 +2121,214 @@ private fun CustomThemeColorDialog(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguagePickerDialog(
+    selectedLanguage: AppLanguage,
+    onDismiss: () -> Unit,
+    onSelectLanguage: (AppLanguage) -> Unit,
+) {
+    val activeFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100L)
+        try {
+            activeFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .padding(horizontal = 24.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 460.dp)
+                    .heightIn(max = 480.dp)
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    ),
+                shape = RoundedCornerShape(16.dp),
+                color = BgElevated,
+                tonalElevation = 10.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .border(1.dp, DividerColor, RoundedCornerShape(16.dp))
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(AccentBlue.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Language,
+                                contentDescription = null,
+                                tint = ElectricBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = S.languageDialogTitle,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            )
+                            Text(
+                                text = S.languageDialogSubtitle,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = TextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = DividerColor, thickness = 0.8.dp)
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AppLanguage.entries.forEach { lang ->
+                            val isSelected = lang == selectedLanguage
+                            val rowShape = RoundedCornerShape(10.dp)
+                            val rowModifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .let { base ->
+                                    if (isSelected) base.focusRequester(activeFocusRequester) else base
+                                }
+                                .clip(rowShape)
+                                .background(
+                                    if (isSelected) AccentBlue.copy(alpha = 0.16f) else BgSurface
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) ElectricBlue.copy(alpha = 0.7f) else DividerColor,
+                                    shape = rowShape
+                                )
+                                .tvFocusRing(rowShape)
+                                .clickable { onSelectLanguage(lang) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+
+                            Row(
+                                modifier = rowModifier,
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(
+                                            if (isSelected) AccentBlue.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.06f)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = lang.code.uppercase(),
+                                        color = if (isSelected) ElectricBlue else TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    val localizedName = S.languageNames[lang] ?: lang.englishName
+                                    Text(
+                                        text = lang.nativeName,
+                                        color = TextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (localizedName != lang.nativeName) {
+                                        Text(
+                                            text = localizedName,
+                                            color = TextSecondary,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = S.active,
+                                        tint = ElectricBlue,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    var isCloseFocused by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .onFocusChanged { isCloseFocused = it.isFocused || it.hasFocus }
+                            .tvFocusRing(RoundedCornerShape(10.dp)),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = if (isCloseFocused) 1.5.dp else 1.dp,
+                            color = if (isCloseFocused) Color.White else DividerColor
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isCloseFocused) Color.White.copy(alpha = 0.14f) else BgSurface,
+                            contentColor = TextPrimary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = S.close,
+                            color = if (isCloseFocused) Color.White else TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ThemeChannelSlider(
     label: String,

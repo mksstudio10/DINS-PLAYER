@@ -807,7 +807,7 @@ fun PlayerScreen(
                     CircularProgressIndicator(color = Color.White)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = title.ifEmpty { "Memuat..." },
+                        text = title.ifEmpty { com.dinsplayer.app.core.i18n.S.loading },
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
@@ -870,7 +870,7 @@ fun PlayerScreen(
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.tvFocusRing(RoundedCornerShape(10.dp))
                         ) {
-                            Text("Kembali", color = Color.White.copy(alpha = 0.8f))
+                            Text(com.dinsplayer.app.core.i18n.S.back, color = Color.White.copy(alpha = 0.8f))
                         }
                     }
                 }
@@ -1025,7 +1025,7 @@ fun PlayerScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.ChevronLeft,
-                                    contentDescription = "Kembali",
+                                    contentDescription = com.dinsplayer.app.core.i18n.S.back,
                                     tint = Color.White,
                                     modifier = Modifier.size(26.dp)
                                 )
@@ -1195,7 +1195,7 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         Icons.Filled.ChevronLeft,
-                                        contentDescription = "Kembali",
+                                        contentDescription = com.dinsplayer.app.core.i18n.S.back,
                                         tint = Color.White,
                                         modifier = Modifier.size(26.dp)
                                     )
@@ -1258,7 +1258,7 @@ fun PlayerScreen(
                                     } else {
                                         Icon(
                                             imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                            contentDescription = if (isPlaying) "Jeda" else "Putar",
+                                            contentDescription = if (isPlaying) com.dinsplayer.app.core.i18n.S.pause else com.dinsplayer.app.core.i18n.S.play,
                                             tint = Color.White,
                                             modifier = Modifier.size(32.dp)
                                         )
@@ -1336,7 +1336,7 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         Icons.Filled.Lock,
-                                        contentDescription = "Kunci",
+                                        contentDescription = com.dinsplayer.app.core.i18n.S.lockScreen,
                                         tint = Color.White,
                                         modifier = Modifier.size(lsIconSize)
                                     )
@@ -1397,7 +1397,7 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         Icons.Filled.Settings,
-                                        contentDescription = "Setelan",
+                                        contentDescription = com.dinsplayer.app.core.i18n.S.navSettings,
                                         tint = Color.White,
                                         modifier = Modifier.size(lsIconSize)
                                     )
@@ -1740,7 +1740,7 @@ fun PlayerScreen(
                                 ) {
                                     Icon(
                                         Icons.Filled.Close,
-                                        contentDescription = "Tutup",
+                                        contentDescription = com.dinsplayer.app.core.i18n.S.close,
                                         tint = Color.White.copy(alpha = 0.75f),
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -1916,7 +1916,7 @@ fun PlayerScreen(
                                         }
                                     } else {
                                         Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                            Text("Tidak ada pilihan trek audio tambahan", color = Color.Gray, fontSize = 14.sp)
+                                            Text(com.dinsplayer.app.core.i18n.S.noAudioTracks, color = Color.Gray, fontSize = 14.sp)
                                         }
                                     }
                                 }
@@ -1937,7 +1937,7 @@ fun PlayerScreen(
                                         }
                                     } else {
                                         Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                            Text("Tidak ada pilihan subtitle", color = Color.Gray, fontSize = 14.sp)
+                                            Text(com.dinsplayer.app.core.i18n.S.noSubtitles, color = Color.Gray, fontSize = 14.sp)
                                         }
                                     }
                                 }
@@ -2106,7 +2106,7 @@ fun VrModeDialog(
                     ) {
                         Icon(
                             Icons.Filled.Close,
-                            contentDescription = "Tutup",
+                            contentDescription = com.dinsplayer.app.core.i18n.S.close,
                             tint = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier.size(18.dp)
                         )
@@ -2227,7 +2227,7 @@ fun VrModeDialog(
                         .height(42.dp)
                         .tvFocusRing(RoundedCornerShape(12.dp))
                 ) {
-                    Text("Tutup", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(com.dinsplayer.app.core.i18n.S.close, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         }

@@ -27,6 +27,17 @@ enum class ThemePreset(
     }
 }
 
+fun ThemePreset.localizedLabel(): String = when (this) {
+    ThemePreset.BLUE -> com.dinsplayer.app.core.i18n.S.presetBlue
+    ThemePreset.EMERALD -> com.dinsplayer.app.core.i18n.S.presetEmerald
+    ThemePreset.CRIMSON -> com.dinsplayer.app.core.i18n.S.presetCrimson
+    ThemePreset.VIOLET -> com.dinsplayer.app.core.i18n.S.presetViolet
+    ThemePreset.AMBER -> com.dinsplayer.app.core.i18n.S.presetAmber
+    ThemePreset.TEAL -> com.dinsplayer.app.core.i18n.S.presetTeal
+    ThemePreset.ROSE -> com.dinsplayer.app.core.i18n.S.presetRose
+    ThemePreset.ORANGE -> com.dinsplayer.app.core.i18n.S.presetOrange
+}
+
 data class ThemeTokens(
     val bgDeep: Color,
     val bgBase: Color,

@@ -280,7 +280,7 @@ fun WebServerStreamDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
                 ) {
                     Text(
-                        text = "Tutup",
+                        text = com.dinsplayer.app.core.i18n.S.close,
                         color = Color.White,
                         fontWeight = if (isCloseFocused) FontWeight.Bold else FontWeight.SemiBold
                     )

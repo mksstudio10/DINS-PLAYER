@@ -25,6 +25,12 @@ enum class MultiLayoutMode(val slotCount: Int, val label: String) {
     GRID_4(4, "2x2 Grid"),
 }
 
+fun MultiLayoutMode.localizedLabel(): String = when (this) {
+    MultiLayoutMode.SPLIT_2 -> com.dinsplayer.app.core.i18n.S.layoutSplit2
+    MultiLayoutMode.FOCUS_3 -> com.dinsplayer.app.core.i18n.S.layoutFocus3
+    MultiLayoutMode.GRID_4 -> com.dinsplayer.app.core.i18n.S.layoutGrid4
+}
+
 data class MultiSlotState(
     val slotIndex: Int,
     val channel: ChannelItem? = null,

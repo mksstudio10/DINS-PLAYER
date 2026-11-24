@@ -371,7 +371,7 @@ private fun PortraitLayout(
                             Icon(Icons.Filled.Search, null, tint = MenuTextMuted, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Box(modifier = Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 14.sp)
+                                if (searchQuery.isEmpty()) Text(com.dinsplayer.app.core.i18n.S.searchChannels, color = MenuTextMuted, fontSize = 14.sp)
                                 innerTextField()
                             }
                         }
@@ -388,7 +388,7 @@ private fun PortraitLayout(
                     .focusRequester(closeButtonFocusRequester)
                     .tvFocusRing(CircleShape)
             ) {
-                Icon(Icons.Filled.Close, "Tutup", tint = MenuTextMuted, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Close, com.dinsplayer.app.core.i18n.S.close, tint = MenuTextMuted, modifier = Modifier.size(20.dp))
             }
         }
 
@@ -430,7 +430,7 @@ private fun PortraitLayout(
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    text = if (channels.isEmpty()) "Belum ada playlist Live TV aktif" else "Tidak ada saluran ditemukan",
+                    text = if (channels.isEmpty()) com.dinsplayer.app.core.i18n.S.noPlaylistLoaded else com.dinsplayer.app.core.i18n.S.channelNotFound,
                     color = MenuTextMuted,
                     fontSize = 14.sp,
                 )
@@ -598,7 +598,7 @@ private fun LandscapeLayout(
                         }
                         .tvFocusRing(CircleShape)
                 ) {
-                    Icon(Icons.Filled.Close, "Tutup", tint = MenuTextMuted, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Close, com.dinsplayer.app.core.i18n.S.close, tint = MenuTextMuted, modifier = Modifier.size(18.dp))
                 }
             }
             HorizontalDivider(color = MenuDivider, thickness = 0.5.dp)
@@ -757,7 +757,7 @@ private fun LandscapeLayout(
                                 Icon(Icons.Filled.Search, null, tint = if (isSearchFocused) Color.White else MenuTextMuted, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Box(modifier = Modifier.weight(1f)) {
-                                    if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 13.sp)
+                                    if (searchQuery.isEmpty()) Text(com.dinsplayer.app.core.i18n.S.searchChannels, color = MenuTextMuted, fontSize = 13.sp)
                                     innerTextField()
                                 }
                             }
@@ -769,7 +769,7 @@ private fun LandscapeLayout(
             if (filtered.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
                     Text(
-                        text = if (channels.isEmpty()) "Belum ada playlist Live TV aktif" else "Tidak ada saluran",
+                        text = if (channels.isEmpty()) com.dinsplayer.app.core.i18n.S.noPlaylistLoaded else com.dinsplayer.app.core.i18n.S.noChannelFoundShort,
                         color = MenuTextMuted,
                         fontSize = 13.sp,
                     )

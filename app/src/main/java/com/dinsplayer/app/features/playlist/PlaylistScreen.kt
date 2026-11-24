@@ -129,8 +129,8 @@ fun PlaylistScreen(
     if (playlistToDelete != null) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = { Text("Konfirmasi Hapus") },
-            text = { Text("Apakah Anda yakin ingin menghapus playlist '${playlistToDelete?.name}'?") },
+            title = { Text(com.dinsplayer.app.core.i18n.S.confirmDeleteTitle) },
+            text = { Text("${com.dinsplayer.app.core.i18n.S.confirmDeletePlaylistPrefix} '${playlistToDelete?.name}'?") },
             confirmButton = {
                 TextButton(onClick = {
                     playlistToDelete?.let { p ->
@@ -146,12 +146,12 @@ fun PlaylistScreen(
                     }
                     playlistToDelete = null
                 }) {
-                    Text("Hapus", color = ColorError)
+                    Text(com.dinsplayer.app.core.i18n.S.delete, color = ColorError)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { playlistToDelete = null }) {
-                    Text("Batal")
+                    Text(com.dinsplayer.app.core.i18n.S.cancel)
                 }
             },
             containerColor = BgDialog,
@@ -183,7 +183,7 @@ fun PlaylistScreen(
                                 .focusRequester(focusRequester)
                                 .tvFocusRing(RoundedCornerShape(10.dp))
                                 .then(guardModifier),
-                            placeholder = { Text("Cari playlist...", color = TextMuted) },
+                            placeholder = { Text(com.dinsplayer.app.core.i18n.S.searchPlaylists, color = TextMuted) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { finishEditing() }),
@@ -202,14 +202,14 @@ fun PlaylistScreen(
                         onClick = { showSearch = false; searchQuery = "" },
                         modifier = Modifier.tvFocusRing(CircleShape),
                     ) {
-                        Icon(Icons.Filled.Close, contentDescription = "Tutup pencarian", tint = TextSecondary)
+                        Icon(Icons.Filled.Close, contentDescription = com.dinsplayer.app.core.i18n.S.close, tint = TextSecondary)
                     }
                     LaunchedEffect(Unit) { focusRequester.requestFocus() }
                 } else {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Playlist", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = TextPrimary))
+                        Text(com.dinsplayer.app.core.i18n.S.playlistTitle, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = TextPrimary))
                         Text(
-                            text = playlists.firstOrNull { it.isActive }?.name?.let { "Aktif: $it" } ?: "Belum ada playlist aktif",
+                            text = playlists.firstOrNull { it.isActive }?.name?.let { com.dinsplayer.app.core.i18n.S.fmtActivePlaylist(it) } ?: com.dinsplayer.app.core.i18n.S.noActivePlaylist,
                             style = MaterialTheme.typography.bodySmall.copy(color = AccentBlue),
                             maxLines = 1, overflow = TextOverflow.Ellipsis
                         )
@@ -283,7 +283,7 @@ fun PlaylistScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, tint = TextMuted, modifier = Modifier.size(56.dp))
                         Spacer(Modifier.height(12.dp))
-                        Text("Belum ada playlist", style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
+                        Text(com.dinsplayer.app.core.i18n.S.noPlaylistsYet, style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
                         Spacer(Modifier.height(16.dp))
                         var isEmptyBtnFocused by remember { mutableStateOf(false) }
                         Button(
@@ -302,13 +302,13 @@ fun PlaylistScreen(
                         ) {
                             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Tambah Playlist", fontWeight = FontWeight.Bold)
+                            Text(com.dinsplayer.app.core.i18n.S.addPlaylist, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             } else if (filteredPlaylists.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Playlist tidak ditemukan", style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
+                    Text(com.dinsplayer.app.core.i18n.S.playlistNotFound, style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
                 }
             } else {
                 LazyColumn(
@@ -509,7 +509,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                         shape = RoundedCornerShape(4.dp),
                         color = ColorSuccess.copy(alpha = 0.15f)
                     ) {
-                        Text("Aktif", style = MaterialTheme.typography.labelSmall.copy(color = ColorSuccess), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        Text(com.dinsplayer.app.core.i18n.S.active, style = MaterialTheme.typography.labelSmall.copy(color = ColorSuccess), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
             }
@@ -549,7 +549,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                     ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Buka")
+                        Text(com.dinsplayer.app.core.i18n.S.open)
                     }
                 }
                 var isToggleFocused by remember { mutableStateOf(false) }
@@ -572,7 +572,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (playlist.isActive) "Aktif" else "Aktifkan")
+                    Text(if (playlist.isActive) com.dinsplayer.app.core.i18n.S.active else com.dinsplayer.app.core.i18n.S.active)
                 }
                 var isEditFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
@@ -590,7 +590,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                 ) {
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Edit")
+                    Text(com.dinsplayer.app.core.i18n.S.edit)
                 }
                 var isDeleteFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
@@ -609,7 +609,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                 ) {
                     Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Hapus")
+                    Text(com.dinsplayer.app.core.i18n.S.delete)
                 }
             }
         } else {
@@ -627,7 +627,7 @@ private fun PlaylistCard(playlist: Playlist, onDelete: () -> Unit, onEdit: () ->
                         Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = TextSecondary, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Hapus", tint = ColorError.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Delete, contentDescription = com.dinsplayer.app.core.i18n.S.delete, tint = ColorError.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -1276,7 +1276,7 @@ private fun AddPlaylistDialog(
                     ) {
                         if (isTesting) {
                             CircularProgressIndicator(color = AccentBlue, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp)); Text("Mengecek...")
+                            Spacer(Modifier.width(8.dp)); Text(com.dinsplayer.app.core.i18n.S.checking)
                         } else {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp)); Text(if (selectedType == 0) "Test URL" else "Test Akun")
@@ -1328,7 +1328,7 @@ private fun AddPlaylistDialog(
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Unduh/Simpan M3U ke Perangkat", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(com.dinsplayer.app.core.i18n.S.downloadM3u, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                 }
 
@@ -1349,7 +1349,7 @@ private fun AddPlaylistDialog(
                             contentColor = if (isBatalFocused) Color.White else TextSecondary,
                             containerColor = if (isBatalFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent
                         )
-                    ) { Text("Batal") }
+                    ) { Text(com.dinsplayer.app.core.i18n.S.cancel) }
 
                     var isSaveFocused by remember { mutableStateOf(false) }
                     Button(
@@ -1421,7 +1421,7 @@ private fun AddPlaylistDialog(
                             containerColor = if (isSaveFocused) Color(0xFF3B82F6) else AccentBlue
                         ),
                         shape = RoundedCornerShape(10.dp),
-                    ) { Text(if (playlistToEdit != null) "Simpan" else "Tambah") }
+                    ) { Text(if (playlistToEdit != null) com.dinsplayer.app.core.i18n.S.save else com.dinsplayer.app.core.i18n.S.add) }
                 }
             }
         }

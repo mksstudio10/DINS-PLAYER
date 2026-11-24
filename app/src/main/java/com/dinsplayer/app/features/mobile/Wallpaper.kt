@@ -53,6 +53,18 @@ enum class WallpaperMode(val key: String, val label: String, val hint: String) {
     }
 }
 
+fun WallpaperMode.localizedLabel(): String = when (this) {
+    WallpaperMode.DEFAULT -> com.dinsplayer.app.core.i18n.S.wallpaperDefault
+    WallpaperMode.CUSTOM -> com.dinsplayer.app.core.i18n.S.wallpaperCustom
+    WallpaperMode.OFF -> com.dinsplayer.app.core.i18n.S.wallpaperOff
+}
+
+fun WallpaperMode.localizedHint(): String = when (this) {
+    WallpaperMode.DEFAULT -> com.dinsplayer.app.core.i18n.S.wallpaperDefaultHint
+    WallpaperMode.CUSTOM -> com.dinsplayer.app.core.i18n.S.wallpaperCustomHint
+    WallpaperMode.OFF -> com.dinsplayer.app.core.i18n.S.wallpaperOffHint
+}
+
 /**
  * Bundled wallpapers in `assets/wallpapers`.
  *

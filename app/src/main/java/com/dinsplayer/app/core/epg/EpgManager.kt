@@ -38,7 +38,7 @@ sealed class EpgUrlStatus {
     data object Checking : EpgUrlStatus()
     data class Active(
         val httpCode: Int = 200,
-        val detail: String = "Aktif",
+        val detail: String = "Active",
         val checkedAtMillis: Long = System.currentTimeMillis(),
     ) : EpgUrlStatus()
     data class Error(
@@ -78,24 +78,25 @@ internal object EpgUrlValidator {
     }
 
     fun mapHttpStatusError(code: Int): String = when (code) {
-        401 -> "HTTP 401 (Butuh autentikasi)"
-        403 -> "HTTP 403 (Akses ditolak)"
-        404 -> "HTTP 404 (URL tidak ditemukan)"
-        429 -> "HTTP 429 (Terlalu banyak permintaan)"
-        in 500..599 -> "HTTP $code (Server sedang bermasalah)"
-        else -> "HTTP $code (Gagal diakses)"
+        401 -> "HTTP 401 (Unauthorized)"
+        403 -> "HTTP 403 (Forbidden)"
+        404 -> "HTTP 404 (Not Found)"
+        429 -> "HTTP 429 (Too Many Requests)"
+        in 500..599 -> "HTTP $code (Server Error)"
+        else -> "HTTP $code (Request Failed)"
     }
 
     fun mapExceptionError(e: Throwable): String = when (e) {
-        is UnknownHostException -> "Domain tidak ditemukan / offline"
-        is SocketTimeoutException -> "Waktu koneksi habis (timeout)"
-        is SSLException -> "Kesalahan sertifikat SSL"
-        else -> e.message?.takeIf { it.isNotBlank() }?.let { "Gagal terhubung: $it" }
-            ?: "Gagal terhubung ke server"
+        is UnknownHostException -> com.dinsplayer.app.core.i18n.S.epgDomainError
+        is SocketTimeoutException -> com.dinsplayer.app.core.i18n.S.epgTimeoutError
+        is SSLException -> com.dinsplayer.app.core.i18n.S.epgSslError
+        else -> e.message?.takeIf { it.isNotBlank() }?.let { "${com.dinsplayer.app.core.i18n.S.epgConnectFail}: $it" }
+            ?: com.dinsplayer.app.core.i18n.S.epgConnectFail
     }
 
     fun summarizeEpgStatuses(urls: List<String>, statuses: Map<String, EpgUrlStatus>): String {
-        if (urls.isEmpty()) return "Belum ada sumber EPG"
+        val strings = com.dinsplayer.app.core.i18n.S
+        if (urls.isEmpty()) return strings.epgNoSource
         var activeCount = 0
         var errorCount = 0
         var checkingCount = 0
@@ -108,11 +109,11 @@ internal object EpgUrlValidator {
             }
         }
         return when {
-            checkingCount > 0 -> "${urls.size} tautan EPG (memeriksa...)"
-            activeCount == 0 && errorCount == 0 -> "${urls.size} tautan EPG tersimpan"
-            errorCount == 0 -> "${urls.size} tautan EPG ($activeCount aktif)"
-            activeCount == 0 -> "${urls.size} tautan EPG ($errorCount error)"
-            else -> "${urls.size} tautan EPG ($activeCount aktif, $errorCount error)"
+            checkingCount > 0 -> strings.fmtEpgSummaryChecking(urls.size)
+            activeCount == 0 && errorCount == 0 -> strings.fmtEpgSummarySaved(urls.size)
+            errorCount == 0 -> strings.fmtEpgSummaryActiveOnly(urls.size, activeCount)
+            activeCount == 0 -> strings.fmtEpgSummaryErrorOnly(urls.size, errorCount)
+            else -> strings.fmtEpgSummaryMixed(urls.size, activeCount, errorCount)
         }
     }
 }
@@ -171,7 +172,7 @@ object EpgManager {
     suspend fun checkUrl(rawUrl: String): EpgUrlStatus {
         val url = rawUrl.trim()
         if (!EpgUrlValidator.isValidHttpUrl(url)) {
-            val invalid = EpgUrlStatus.Error("Format URL harus diawali http:// atau https://")
+            val invalid = EpgUrlStatus.Error(com.dinsplayer.app.core.i18n.S.epgInvalidUrl)
             setUrlStatus(rawUrl, invalid)
             return invalid
         }
@@ -187,7 +188,7 @@ object EpgManager {
                         )
                     }
                     val bodyStream = response.body?.byteStream()
-                        ?: return@withContext EpgUrlStatus.Error("Respon kosong (HTTP ${response.code})")
+                        ?: return@withContext EpgUrlStatus.Error("${com.dinsplayer.app.core.i18n.S.epgEmptyResponse} (HTTP ${response.code})")
                     val isGzip = url.endsWith(".gz", ignoreCase = true) ||
                         "gzip".equals(response.header("Content-Encoding"), ignoreCase = true)
 
@@ -198,10 +199,10 @@ object EpgManager {
                     if (EpgUrlValidator.looksLikeXmltvHeader(snippet)) {
                         EpgUrlStatus.Active(
                             httpCode = response.code,
-                            detail = "Aktif (HTTP ${response.code})",
+                            detail = com.dinsplayer.app.core.i18n.S.fmtEpgActiveHttp(response.code),
                         )
                     } else {
-                        EpgUrlStatus.Error("Isi bukan XMLTV valid (HTTP ${response.code})")
+                        EpgUrlStatus.Error("${com.dinsplayer.app.core.i18n.S.epgNotXmltv} (HTTP ${response.code})")
                     }
                 }
             } catch (ce: CancellationException) {
@@ -351,9 +352,9 @@ object EpgManager {
                                 }
                             }
                             if (programCount > 0) {
-                                setUrlStatus(url, EpgUrlStatus.Active(response.code, "Aktif ($programCount program)"))
+                                setUrlStatus(url, EpgUrlStatus.Active(response.code, com.dinsplayer.app.core.i18n.S.fmtEpgActivePrograms(programCount)))
                             } else {
-                                setUrlStatus(url, EpgUrlStatus.Error("XMLTV tidak memuat jadwal program"))
+                                setUrlStatus(url, EpgUrlStatus.Error(com.dinsplayer.app.core.i18n.S.epgEmptyXmltv))
                             }
                         }
                     } catch (ce: CancellationException) {

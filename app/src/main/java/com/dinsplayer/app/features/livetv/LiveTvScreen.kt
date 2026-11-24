@@ -253,11 +253,11 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
-                            "Pilih saluran",
+                            com.dinsplayer.app.core.i18n.S.selectChannelsTitle,
                             style = MaterialTheme.typography.titleSmall.copy(color = TextPrimary, fontWeight = FontWeight.SemiBold)
                         )
                         Text(
-                            "${multiSelectedIds.size}/4 dipilih",
+                            com.dinsplayer.app.core.i18n.S.fmtSelectedOf4(multiSelectedIds.size),
                             style = MaterialTheme.typography.bodySmall.copy(color = AccentBlue)
                         )
                     }
@@ -270,7 +270,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         onClick = { exitMultiSelect() },
                         modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
                     ) {
-                        Text("Batal", color = TextSecondary)
+                        Text(com.dinsplayer.app.core.i18n.S.cancel, color = TextSecondary)
                     }
                     Button(
                         onClick = { startMultiTvFromSelection() },
@@ -286,7 +286,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         Icon(Icons.Filled.Dashboard, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (multiSelectedIds.size >= 2) "Mulai (${multiSelectedIds.size})" else "Mulai",
+                            if (multiSelectedIds.size >= 2) com.dinsplayer.app.core.i18n.S.fmtStartMulti(multiSelectedIds.size) else com.dinsplayer.app.core.i18n.S.start,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -300,7 +300,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         onValueChange = { searchQuery = it },
                         readOnly = readOnly,
                         interactionSource = interactionSource,
-                        placeholder = { Text("Cari saluran...", fontSize = 14.sp, color = TextMuted) },
+                        placeholder = { Text(com.dinsplayer.app.core.i18n.S.searchChannels, fontSize = 14.sp, color = TextMuted) },
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -332,8 +332,8 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                 }
             } else {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Live TV", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = TextPrimary))
-                    Text("${filtered.size} saluran", style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary))
+                    Text(com.dinsplayer.app.core.i18n.S.liveTvTitle, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = TextPrimary))
+                    Text(com.dinsplayer.app.core.i18n.S.fmtChannels(filtered.size), style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary))
                 }
                 IconButton(
                     onClick = { toggleGridView() },
@@ -341,7 +341,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                 ) {
                     Icon(
                         if (isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.GridView,
-                        contentDescription = if (isGridView) "Tampilan List" else "Tampilan Grid 3 Kotak",
+                        contentDescription = if (isGridView) com.dinsplayer.app.core.i18n.S.listViewDesc else com.dinsplayer.app.core.i18n.S.gridViewDesc,
                         tint = if (isGridView) AccentBlue else TextSecondary,
                         modifier = Modifier.size(22.dp)
                     )
@@ -354,7 +354,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     ) {
                         Icon(
                             Icons.Filled.Dashboard,
-                            contentDescription = "Multi TV",
+                            contentDescription = com.dinsplayer.app.core.i18n.S.multiTvTitle,
                             tint = TextSecondary,
                             modifier = Modifier.size(22.dp)
                         )
@@ -365,7 +365,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         containerColor = BgDialog,
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Pilih Saluran (2-4 TV)", color = TextPrimary) },
+                            text = { Text(com.dinsplayer.app.core.i18n.S.selectChannelsMenu, color = TextPrimary) },
                             leadingIcon = {
                                 Icon(
                                     Icons.Filled.Checklist,
@@ -382,7 +382,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Buka Layar Kosong", color = TextPrimary) },
+                            text = { Text(com.dinsplayer.app.core.i18n.S.openBlankScreenMenu, color = TextPrimary) },
                             leadingIcon = {
                                 Icon(
                                     Icons.Filled.Dashboard,
@@ -428,7 +428,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                             .tvFocusRing(shape = RoundedCornerShape(8.dp), color = Color.White, width = 2.5.dp)
                     ) {
                         Text(
-                            text  = group,
+                            text  = if (group == "Semua") com.dinsplayer.app.core.i18n.S.allGroup else group,
                             style = MaterialTheme.typography.labelMedium.copy(
                                 color = if (selected || isChipFocused) Color.White else TextSecondary,
                                 fontWeight = if (selected || isChipFocused) FontWeight.Bold else FontWeight.Normal
@@ -457,7 +457,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
                         Icon(Icons.Filled.ErrorOutline, null, tint = AccentBlue, modifier = Modifier.size(56.dp))
                         Spacer(Modifier.height(12.dp))
-                        Text("Terjadi Kesalahan", style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary))
+                        Text(com.dinsplayer.app.core.i18n.S.errorOccurred, style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary))
                         Spacer(Modifier.height(8.dp))
                         Text(errorMessage, style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
@@ -468,25 +468,25 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.Tv, null, tint = TextMuted, modifier = Modifier.size(56.dp))
                         Spacer(Modifier.height(12.dp))
-                        Text("Tidak ada saluran", style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
-                        Text("Tambahkan playlist di menu Playlist", style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
+                        Text(com.dinsplayer.app.core.i18n.S.noChannels, style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary))
+                        Text(com.dinsplayer.app.core.i18n.S.addPlaylistHint, style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
                     }
                 }
             }
             filtered.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Saluran tidak ditemukan", style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary))
+                        Text(com.dinsplayer.app.core.i18n.S.channelNotFound, style = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary))
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Tidak ada hasil untuk \"$searchQuery\"" +
-                                if (selectedGroup != "Semua") " di grup $selectedGroup" else "",
+                            "\"$searchQuery\"" +
+                                if (selectedGroup != "Semua") " ($selectedGroup)" else "",
                             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(Modifier.height(12.dp))
                         TextButton(onClick = { searchQuery = ""; selectedGroup = "Semua" }) {
-                            Text("Reset Filter", color = AccentBlue, fontWeight = FontWeight.SemiBold)
+                            Text(com.dinsplayer.app.core.i18n.S.resetFilter, color = AccentBlue, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -730,7 +730,7 @@ private fun ChannelRow(
                 }
             }
         } else {
-            Icon(Icons.Filled.PlayCircle, contentDescription = "Putar", tint = AccentBlue, modifier = Modifier.size(28.dp))
+            Icon(Icons.Filled.PlayCircle, contentDescription = com.dinsplayer.app.core.i18n.S.play, tint = AccentBlue, modifier = Modifier.size(28.dp))
         }
         }
     }
@@ -860,13 +860,13 @@ private fun MultiSelectTray(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "$selectedCount/4 saluran dipilih",
+                        com.dinsplayer.app.core.i18n.S.fmtSelectedOf4Channels(selectedCount),
                         color = TextPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp
                     )
                     Text(
-                        if (selectedCount < 2) "Pilih minimal 2 saluran" else "Siap untuk Multi TV",
+                        if (selectedCount < 2) com.dinsplayer.app.core.i18n.S.selectMinTwo else com.dinsplayer.app.core.i18n.S.readyForMultiTv,
                         color = if (selectedCount >= 2) AccentBlue else TextMuted,
                         fontSize = 12.sp
                     )
@@ -876,7 +876,7 @@ private fun MultiSelectTray(
                     onClick = onCancel,
                     modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
                 ) {
-                    Text("Batal", color = TextSecondary)
+                    Text(com.dinsplayer.app.core.i18n.S.cancel, color = TextSecondary)
                 }
                 Spacer(Modifier.width(4.dp))
                 Button(
@@ -891,7 +891,7 @@ private fun MultiSelectTray(
                 ) {
                     Icon(Icons.Filled.Dashboard, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Mulai")
+                    Text(com.dinsplayer.app.core.i18n.S.start)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -911,7 +911,7 @@ private fun MultiSelectTray(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "Slot $slot",
+                            text = com.dinsplayer.app.core.i18n.S.fmtSlotN(slot),
                             color = if (filled) AccentBlue else TextMuted,
                             fontSize = 10.sp,
                             fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal,

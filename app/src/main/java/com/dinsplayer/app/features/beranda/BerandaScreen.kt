@@ -206,14 +206,10 @@ fun BerandaScreen(
                     .fillMaxWidth()
                     .imePadding()
                     .verticalScroll(scrollState)
-                    .padding(bottom = 24.dp),
+                    .padding(top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                AdBannerSlot()
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                SectionLabel("Uji Stream")
+                SectionLabel(com.dinsplayer.app.core.i18n.S.streamTestTitle)
                 Spacer(modifier = Modifier.height(10.dp))
                 StreamFormContent(
                     form = form,
@@ -305,7 +301,7 @@ private fun TopBar(onHistoryClick: () -> Unit) {
             ) {
                 Icon(
                     imageVector = Icons.Filled.History,
-                    contentDescription = "Riwayat",
+                    contentDescription = com.dinsplayer.app.core.i18n.S.history,
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.size(22.dp)
                 )
@@ -318,7 +314,7 @@ private fun TopBar(onHistoryClick: () -> Unit) {
             ) {
                 Icon(
                     imageVector = Icons.Filled.AccountCircle,
-                    contentDescription = "Profil",
+                    contentDescription = com.dinsplayer.app.core.i18n.S.profile,
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.size(22.dp)
                 )
@@ -336,14 +332,14 @@ private fun TopBar(onHistoryClick: () -> Unit) {
             textContentColor = TextSecondary,
             title = {
                 Text(
-                    text = "Profil",
+                    text = com.dinsplayer.app.core.i18n.S.profile,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 18.sp
                 )
             },
             text = {
                 Text(
-                    text = "Fitur profil akan segera hadir (Coming Soon).",
+                    text = com.dinsplayer.app.core.i18n.S.profileComingSoon,
                     fontSize = 14.sp,
                     lineHeight = 20.sp
                 )
@@ -364,7 +360,7 @@ private fun TopBar(onHistoryClick: () -> Unit) {
                     )
                 ) {
                     Text(
-                        text = "Tutup",
+                        text = com.dinsplayer.app.core.i18n.S.close,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -424,7 +420,7 @@ private fun StreamFormContent(
         PillTextField(
             value = form.url,
             onValueChange = { onFormChange(form.copy(url = it)) },
-            placeholder = "Tautan Stream",
+            placeholder = com.dinsplayer.app.core.i18n.S.streamUrlPlaceholder,
             firstFocusRequester = urlFocusRequester,
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -436,7 +432,7 @@ private fun StreamFormContent(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ContentPaste,
-                            contentDescription = "Tempel",
+                            contentDescription = com.dinsplayer.app.core.i18n.S.paste,
                             tint = TextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -450,7 +446,7 @@ private fun StreamFormContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Putar",
+                                contentDescription = com.dinsplayer.app.core.i18n.S.play,
                                 tint = ElectricBlue,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -488,7 +484,7 @@ private fun StreamFormContent(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    "Opsi Lanjutan",
+                    com.dinsplayer.app.core.i18n.S.advancedOptions,
                     style = TextStyle(color = TextSecondary, fontSize = 14.sp)
                 )
             }
@@ -525,7 +521,7 @@ private fun StreamFormContent(
                 PillTextField(
                     value = form.drmLicense,
                     onValueChange = { onFormChange(form.copy(drmLicense = it)) },
-                    placeholder = "URL Lisensi DRM / kid:key"
+                    placeholder = com.dinsplayer.app.core.i18n.S.drmLicensePlaceholder
                 )
                 PillCustomHeadersAccordion(
                     value = form.customHeaders,
@@ -595,7 +591,7 @@ private fun StreamFormContent(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Scan QR / Isi via Web",
+                    text = com.dinsplayer.app.core.i18n.S.scanQrFillWeb,
                     style = TextStyle(
                         color = if (isWebBtnFocused) Color.White else TextPrimary,
                         fontSize = 14.sp,
@@ -604,7 +600,7 @@ private fun StreamFormContent(
                 )
             }
             Text(
-                text = "Browser HP",
+                text = com.dinsplayer.app.core.i18n.S.phoneBrowser,
                 style = TextStyle(
                     color = if (isWebBtnFocused) Color.White.copy(alpha = 0.85f) else ElectricBlue,
                     fontSize = 12.sp,
@@ -652,7 +648,7 @@ private fun StreamFormContent(
                     modifier = Modifier.size(24.dp)
                 )
                 Text(
-                    "Putar Stream",
+                    com.dinsplayer.app.core.i18n.S.playStream,
                     style = TextStyle(
                         color = Color.White,
                         fontSize = 16.sp,
@@ -941,8 +937,8 @@ fun HistoryScreen(
     if (itemToDelete != null) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { itemToDelete = null },
-            title = { Text("Konfirmasi Hapus") },
-            text = { Text("Apakah Anda yakin ingin menghapus riwayat ini?") },
+            title = { Text(com.dinsplayer.app.core.i18n.S.confirmDeleteTitle) },
+            text = { Text(com.dinsplayer.app.core.i18n.S.confirmDeleteTitle) },
             confirmButton = {
                 TextButton(onClick = {
                     itemToDelete?.let { 
@@ -951,12 +947,12 @@ fun HistoryScreen(
                     }
                     itemToDelete = null
                 }) {
-                    Text("Hapus", color = ColorError)
+                    Text(com.dinsplayer.app.core.i18n.S.delete, color = ColorError)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { itemToDelete = null }) {
-                    Text("Batal")
+                    Text(com.dinsplayer.app.core.i18n.S.cancel)
                 }
             },
             containerColor = BgElevated,
@@ -982,11 +978,11 @@ fun HistoryScreen(
                     onClick = onDismiss,
                     modifier = Modifier.tvFocusRing(CircleShape)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = com.dinsplayer.app.core.i18n.S.back, tint = Color.White)
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Riwayat Uji Stream",
+                    text = com.dinsplayer.app.core.i18n.S.history,
                     style = MaterialTheme.typography.titleMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
                 )
             }
@@ -1076,13 +1072,13 @@ private fun HistoryItemView(
                     onClick = onDelete,
                     modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
                 ) {
-                    Text("Hapus", color = Color.Red.copy(alpha = 0.8f))
+                    Text(com.dinsplayer.app.core.i18n.S.delete, color = Color.Red.copy(alpha = 0.8f))
                 }
                 TextButton(
                     onClick = onEdit,
                     modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
                 ) {
-                    Text("Edit", color = Color.White.copy(alpha = 0.7f))
+                    Text(com.dinsplayer.app.core.i18n.S.edit, color = Color.White.copy(alpha = 0.7f))
                 }
                 Button(
                     onClick = onPlay,
@@ -1090,7 +1086,7 @@ private fun HistoryItemView(
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.tvFocusRing(shape = RoundedCornerShape(8.dp), color = Color.White, width = 2.5.dp)
                 ) {
-                    Text("Play", color = Color.White)
+                    Text(com.dinsplayer.app.core.i18n.S.play, color = Color.White)
                 }
             }
         }

@@ -198,7 +198,7 @@ fun LokalScreen(
                         else -> folders.sortedByDescending { it.totalSize }
                     }
                     if (folders.isEmpty()) {
-                        EmptyState("Tidak ada video ditemukan di perangkat ini")
+                        EmptyState(com.dinsplayer.app.core.i18n.S.noChannels)
                     } else if (isGridMode) {
                         // Fixed columns stretched the cards into flat slabs on wide screens:
                         // a 1:1 thumbnail cell grew to 331dp on an 800dp-wide landscape phone.
@@ -240,7 +240,7 @@ fun LokalScreen(
                         else -> folderVideos.sortedByDescending { it.size }
                     }
                     if (folderVideos.isEmpty()) {
-                        EmptyState("Tidak ada video di folder ini")
+                        EmptyState(com.dinsplayer.app.core.i18n.S.localEmptyHint)
                     } else if (isGridMode) {
                         LazyVerticalGrid(
                             columns = GridCells.Adaptive(minSize = if (wide) 150.dp else 160.dp),
@@ -324,13 +324,13 @@ private fun LokalHeader(
                 onClick = onBack,
                 modifier = Modifier.tvFocusRing(CircleShape)
             ) {
-                Icon(Icons.Filled.FolderOpen, contentDescription = "Kembali", tint = TextSecondary)
+                Icon(Icons.Filled.FolderOpen, contentDescription = com.dinsplayer.app.core.i18n.S.back, tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (selectedFolder != null) selectedFolder.name else "Lokal",
+                text = if (selectedFolder != null) selectedFolder.name else com.dinsplayer.app.core.i18n.S.localTitle,
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = TextPrimary)
             )
             Text(
@@ -476,7 +476,7 @@ private fun VideoCard(
         ) {
             Icon(
                 Icons.Filled.Delete,
-                contentDescription = "Hapus video",
+                contentDescription = com.dinsplayer.app.core.i18n.S.delete,
                 tint = ColorError.copy(alpha = 0.8f),
                 modifier = Modifier.size(20.dp)
             )
@@ -485,7 +485,7 @@ private fun VideoCard(
             onClick = onPlay,
             modifier = Modifier.size(40.dp)
         ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = "Putar", tint = AccentBlue, modifier = Modifier.size(24.dp))
+            Icon(Icons.Filled.PlayArrow, contentDescription = com.dinsplayer.app.core.i18n.S.play, tint = AccentBlue, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -523,7 +523,7 @@ private fun PermissionRequest(
         }
         Spacer(Modifier.height(24.dp))
         Text(
-            text = "Akses Media Diperlukan",
+            text = com.dinsplayer.app.core.i18n.S.localPermissionTitle,
             style = MaterialTheme.typography.titleLarge.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
         )
         Spacer(Modifier.height(12.dp))
@@ -551,7 +551,7 @@ private fun PermissionRequest(
                     scaleOnFocus = 1.08f
                 )
         ) {
-            Text("Berikan Akses", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(com.dinsplayer.app.core.i18n.S.localGrantAccess, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         }
     }
 }
@@ -572,7 +572,7 @@ private fun EmptyState(message: String) {
             Spacer(Modifier.height(20.dp))
             Text(message, style = MaterialTheme.typography.titleMedium.copy(color = TextSecondary, fontWeight = FontWeight.SemiBold))
             Spacer(Modifier.height(8.dp))
-            Text("Silakan tambahkan video atau pilih folder lain.", style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
+            Text(com.dinsplayer.app.core.i18n.S.localEmptyHint, style = MaterialTheme.typography.bodySmall.copy(color = TextMuted))
         }
     }
 }
@@ -679,7 +679,7 @@ private fun VideoCardGrid(
             ) {
                 Icon(
                     Icons.Filled.Delete,
-                    contentDescription = "Hapus video",
+                    contentDescription = com.dinsplayer.app.core.i18n.S.delete,
                     tint = ColorError.copy(alpha = 0.9f),
                     modifier = Modifier.size(16.dp)
                 )
@@ -887,7 +887,7 @@ private fun DeleteConfirmDialog(
                 }
 
                 Text(
-                    text = "Hapus Video?",
+                    text = com.dinsplayer.app.core.i18n.S.confirmDeleteTitle,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
@@ -934,7 +934,7 @@ private fun DeleteConfirmDialog(
                         )
                     ) {
                         Text(
-                            text = "Batal",
+                            text = com.dinsplayer.app.core.i18n.S.cancel,
                             fontWeight = FontWeight.Medium,
                             fontSize = 14.sp
                         )
@@ -952,7 +952,7 @@ private fun DeleteConfirmDialog(
                         )
                     ) {
                         Text(
-                            text = "Hapus",
+                            text = com.dinsplayer.app.core.i18n.S.delete,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )

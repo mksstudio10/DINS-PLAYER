@@ -73,28 +73,32 @@ class EpgTest {
 
     @Test
     fun statusSummaryCountsActiveErrorAndCheckingCorrectly() {
+        com.dinsplayer.app.core.i18n.AppLocaleState.currentLanguage =
+            com.dinsplayer.app.core.i18n.AppLanguage.ENGLISH
         val urls = listOf("u1", "u2", "u3")
         val allActive = mapOf(
-            "u1" to EpgUrlStatus.Active(200, "Aktif"),
-            "u2" to EpgUrlStatus.Active(200, "Aktif"),
-            "u3" to EpgUrlStatus.Active(200, "Aktif"),
+            "u1" to EpgUrlStatus.Active(200, "Active"),
+            "u2" to EpgUrlStatus.Active(200, "Active"),
+            "u3" to EpgUrlStatus.Active(200, "Active"),
         )
-        assertEquals("3 tautan EPG (3 aktif)", EpgUrlValidator.summarizeEpgStatuses(urls, allActive))
+        assertEquals("3 EPG links (3 active)", EpgUrlValidator.summarizeEpgStatuses(urls, allActive))
 
         val mixed = mapOf(
-            "u1" to EpgUrlStatus.Active(200, "Aktif"),
+            "u1" to EpgUrlStatus.Active(200, "Active"),
             "u2" to EpgUrlStatus.Error("HTTP 404"),
         )
-        assertEquals("3 tautan EPG (1 aktif, 1 error)", EpgUrlValidator.summarizeEpgStatuses(urls, mixed))
+        assertEquals("3 EPG links (1 active, 1 error)", EpgUrlValidator.summarizeEpgStatuses(urls, mixed))
 
         val checking = mapOf("u1" to EpgUrlStatus.Checking)
-        assertEquals("3 tautan EPG (memeriksa...)", EpgUrlValidator.summarizeEpgStatuses(urls, checking))
+        assertEquals("3 EPG links (checking...)", EpgUrlValidator.summarizeEpgStatuses(urls, checking))
     }
 
     @Test
-    fun errorMappersProduceReadableIndonesianMessages() {
+    fun errorMappersProduceReadableLocalizedMessages() {
+        com.dinsplayer.app.core.i18n.AppLocaleState.currentLanguage =
+            com.dinsplayer.app.core.i18n.AppLanguage.ENGLISH
         assertTrue(EpgUrlValidator.mapHttpStatusError(404).contains("404"))
         assertTrue(EpgUrlValidator.mapExceptionError(UnknownHostException("bad.host")).contains("Domain"))
-        assertTrue(EpgUrlValidator.mapExceptionError(SocketTimeoutException()).contains("timeout"))
+        assertTrue(EpgUrlValidator.mapExceptionError(SocketTimeoutException()).contains("timed out"))
     }
 }
