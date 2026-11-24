@@ -115,6 +115,17 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
         return items
     }
 
+    fun startMultiTvFromSelection() {
+        val allChannelItems = syncLiveChannelsToPlayer()
+        val selected = multiSelectedIds.mapNotNull { id ->
+            allChannelItems.find { it.id == id }
+        }
+        if (selected.isNotEmpty()) {
+            MultiPlayerActivity.launch(context, selected.map { it.id })
+        }
+        exitMultiSelect()
+    }
+
     BackHandler(enabled = isMultiSelectMode) {
         exitMultiSelect()
     }
@@ -221,8 +232,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
 
     // No background here: the shell paints AppWallpaper behind every tab and a solid fill would
     // cover it. Header rows raise their own surface where they need contrast.
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         // Header
         Row(
             modifier = Modifier
@@ -233,7 +243,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (isMultiSelectMode) {
-                // Header mode multi-select: tampilkan jumlah terpilih + tombol batal
+                // Header mode multi-select: tampilkan jumlah terpilih + tombol Batal & Mulai di kanan atas
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically
@@ -251,11 +261,35 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         )
                     }
                 }
-                TextButton(
-                    onClick = { exitMultiSelect() },
-                    modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Batal", color = TextSecondary)
+                    TextButton(
+                        onClick = { exitMultiSelect() },
+                        modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp)),
+                    ) {
+                        Text("Batal", color = TextSecondary)
+                    }
+                    Button(
+                        onClick = { startMultiTvFromSelection() },
+                        enabled = multiSelectedIds.size >= 2,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentBlue,
+                            disabledContainerColor = AccentBlue.copy(alpha = 0.3f),
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.tvFocusRing(RoundedCornerShape(10.dp)),
+                    ) {
+                        Icon(Icons.Filled.Dashboard, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (multiSelectedIds.size >= 2) "Mulai (${multiSelectedIds.size})" else "Mulai",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             } else if (showSearch) {
                 val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -395,6 +429,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
         }
 
         // States
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
         when {
             isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -475,8 +510,7 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                         columns = GridCells.Fixed(if (wide) 5 else 3),
                         contentPadding = PaddingValues(
                             start = 12.dp, end = 12.dp,
-                            top = 6.dp,
-                            bottom = if (isMultiSelectMode) 120.dp else 6.dp
+                            top = 6.dp, bottom = 8.dp
                         ),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -507,10 +541,10 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     LazyColumn(
                         contentPadding = PaddingValues(
                             start = 16.dp, end = 16.dp,
-                            top = 4.dp,
-                            bottom = if (isMultiSelectMode) 120.dp else 4.dp
+                            top = 4.dp, bottom = 8.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(filtered, key = { it.id }, contentType = { "channel_row" }) { channel ->
                             val epgProgram = remember(channel.id, epgNowMap) {
@@ -535,31 +569,17 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                 }
             }
         }
-        } // end Column
+        } // end weight(1f) Box
 
-        // Floating tray muncul di atas list saat mode multi-select aktif
+        // Tray multi-select didock di bawah list agar tidak menutupi baris channel terbawah
         if (isMultiSelectMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 4.dp),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                MultiSelectTray(
-                    selectedCount = multiSelectedIds.size,
-                    onCancel = { exitMultiSelect() },
-                    onStart = {
-                        val allChannelItems = syncLiveChannelsToPlayer()
-                        val selected = multiSelectedIds.mapNotNull { id ->
-                            allChannelItems.find { it.id == id }
-                        }
-                        MultiPlayerActivity.launch(context, selected.map { it.id })
-                        exitMultiSelect()
-                    }
-                )
-            }
+            MultiSelectTray(
+                selectedCount = multiSelectedIds.size,
+                onCancel = { exitMultiSelect() },
+                onStart = { startMultiTvFromSelection() }
+            )
         }
-    } // end Box
+    } // end Column
 }
 
 private fun List<Channel>.toChannelItems(): List<ChannelItem> = map { ch ->

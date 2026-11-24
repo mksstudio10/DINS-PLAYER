@@ -2,6 +2,8 @@
 
 package com.dinsplayer.app.features.multistream
 
+import android.app.UiModeManager
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -79,11 +81,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
-
-import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -123,6 +128,63 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private enum class PendingHudFocus {
+    NONE,
+    BOTTOM_DOCK,
+    ACTION_BAR,
+    TOP_BAR,
+    ACTIVE_TILE,
+}
+
+private data class TileNeighbors(
+    val upSlot: Int? = null,
+    val downSlot: Int? = null,
+    val leftSlot: Int? = null,
+    val rightSlot: Int? = null,
+)
+
+private fun resolveTileNeighbors(
+    slotIndex: Int,
+    layoutMode: MultiLayoutMode,
+    isLandscape: Boolean,
+): TileNeighbors = when (layoutMode) {
+    MultiLayoutMode.SPLIT_2 -> if (isLandscape) {
+        when (slotIndex) {
+            0 -> TileNeighbors(rightSlot = 1)
+            1 -> TileNeighbors(leftSlot = 0)
+            else -> TileNeighbors()
+        }
+    } else {
+        when (slotIndex) {
+            0 -> TileNeighbors(downSlot = 1)
+            1 -> TileNeighbors(upSlot = 0)
+            else -> TileNeighbors()
+        }
+    }
+    MultiLayoutMode.FOCUS_3 -> if (isLandscape) {
+        when (slotIndex) {
+            0 -> TileNeighbors(rightSlot = 1)
+            1 -> TileNeighbors(leftSlot = 0, downSlot = 2)
+            2 -> TileNeighbors(leftSlot = 0, upSlot = 1)
+            else -> TileNeighbors()
+        }
+    } else {
+        when (slotIndex) {
+            0 -> TileNeighbors(downSlot = 1)
+            1 -> TileNeighbors(upSlot = 0, rightSlot = 2)
+            2 -> TileNeighbors(upSlot = 0, leftSlot = 1)
+            else -> TileNeighbors()
+        }
+    }
+    MultiLayoutMode.GRID_4 -> when (slotIndex) {
+        0 -> TileNeighbors(rightSlot = 1, downSlot = 2)
+        1 -> TileNeighbors(leftSlot = 0, downSlot = 3)
+        2 -> TileNeighbors(upSlot = 0, rightSlot = 3)
+        3 -> TileNeighbors(upSlot = 1, leftSlot = 2)
+        else -> TileNeighbors()
+    }
+}
+
 @Composable
 fun MultiStreamScreen(
     initialAutoPickSlot: Int = -1,
@@ -130,8 +192,10 @@ fun MultiStreamScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? ComponentActivity
-    val isTv = remember {
-        context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    val isTv = remember(context) {
+        val uiMode = (context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)
+            ?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        uiMode || context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     }
 
     val slots by MultiStreamManager.slots.collectAsState()
@@ -153,10 +217,22 @@ fun MultiStreamScreen(
         mutableIntStateOf(if (initialAutoPickSlot in 0 until MultiStreamManager.MAX_SLOTS) initialAutoPickSlot else 0)
     }
     var clockText by remember { mutableStateOf("") }
+    var pendingHudFocus by remember { mutableStateOf(PendingHudFocus.NONE) }
+    var wasPickerOpen by remember { mutableStateOf(false) }
 
     val unlockFocusRequester = remember { FocusRequester() }
-    // FocusRequester untuk tile area — dipakai HUD agar D-pad Up dari dock bisa kembali ke tiles
-    val tilesFocusRequester = remember { FocusRequester() }
+    val tileFocusRequesters = remember { List(MultiStreamManager.MAX_SLOTS) { FocusRequester() } }
+    val topBarFocusRequester = remember { FocusRequester() }
+    val actionChipsFocusRequester = remember { FocusRequester() }
+    val bottomDockFocusRequester = remember { FocusRequester() }
+    val slotPillsFocusRequester = remember { FocusRequester() }
+
+    val activeTileIndex = (selectedSlotIndex ?: activeAudioSlot ?: 0)
+        .coerceIn(0, layoutMode.slotCount - 1)
+    val activeTileFocusRequester = tileFocusRequesters[activeTileIndex]
+    val hasSelectedActionBar = selectedSlotIndex?.let { idx ->
+        idx in 0 until layoutMode.slotCount && slots.getOrNull(idx)?.channel != null
+    } == true
 
     LaunchedEffect(initialAutoPickSlot) {
         if (initialAutoPickSlot in 0 until MultiStreamManager.MAX_SLOTS &&
@@ -164,11 +240,47 @@ fun MultiStreamScreen(
         ) {
             lastPickerSlot = initialAutoPickSlot
             channelPickerSlot = initialAutoPickSlot
+        } else {
+            delay(60L)
+            runCatching { tileFocusRequesters[0].requestFocus() }
         }
     }
 
     LaunchedEffect(channelPickerSlot) {
-        channelPickerSlot?.let { lastPickerSlot = it }
+        if (channelPickerSlot != null) {
+            lastPickerSlot = channelPickerSlot!!
+            wasPickerOpen = true
+        } else if (wasPickerOpen) {
+            wasPickerOpen = false
+            delay(40L)
+            val idx = lastPickerSlot.coerceIn(0, layoutMode.slotCount - 1)
+            runCatching { tileFocusRequesters[idx].requestFocus() }
+        }
+    }
+
+    LaunchedEffect(showHud, pendingHudFocus, hasSelectedActionBar) {
+        if (pendingHudFocus == PendingHudFocus.NONE) return@LaunchedEffect
+        if (showHud && !isLocked && channelPickerSlot == null && !showExitDialog) {
+            delay(40L)
+            val target = when (pendingHudFocus) {
+                PendingHudFocus.BOTTOM_DOCK -> bottomDockFocusRequester
+                PendingHudFocus.ACTION_BAR ->
+                    if (hasSelectedActionBar) actionChipsFocusRequester else topBarFocusRequester
+                PendingHudFocus.TOP_BAR -> topBarFocusRequester
+                PendingHudFocus.ACTIVE_TILE -> activeTileFocusRequester
+                PendingHudFocus.NONE -> null
+            }
+            target?.let { runCatching { it.requestFocus() } }
+            pendingHudFocus = PendingHudFocus.NONE
+        } else if (!showHud && !isLocked) {
+            pendingHudFocus = PendingHudFocus.NONE
+        }
+    }
+
+    LaunchedEffect(showHud, isLocked) {
+        if (!showHud && !isLocked && channelPickerSlot == null && !showExitDialog) {
+            runCatching { activeTileFocusRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -197,6 +309,8 @@ fun MultiStreamScreen(
             if (System.currentTimeMillis() - unlockHintTimestamp >= 3400L) {
                 showUnlockHint = false
             }
+        } else if (isLocked) {
+            runCatching { activeTileFocusRequester.requestFocus() }
         }
     }
 
@@ -266,6 +380,70 @@ fun MultiStreamScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(BgDeep)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (channelPickerSlot != null || showExitDialog) return@onPreviewKeyEvent false
+
+                hudLastShownTime = System.currentTimeMillis()
+
+                if (isLocked) {
+                    if (!showUnlockHint) {
+                        triggerUnlockHint()
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent when (event.key) {
+                        Key.DirectionCenter, Key.Enter -> {
+                            isLocked = false
+                            showUnlockHint = false
+                            showHudBriefly()
+                            pendingHudFocus = PendingHudFocus.ACTIVE_TILE
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            showUnlockHint = false
+                            true
+                        }
+                        else -> {
+                            runCatching { unlockFocusRequester.requestFocus() }
+                            true
+                        }
+                    }
+                }
+
+                if (!showHud) {
+                    return@onPreviewKeyEvent when (event.key) {
+                        Key.DirectionDown, Key.Menu -> {
+                            showHudBriefly()
+                            pendingHudFocus = if (!isLandscape && hasSelectedActionBar) {
+                                PendingHudFocus.ACTION_BAR
+                            } else {
+                                PendingHudFocus.BOTTOM_DOCK
+                            }
+                            true
+                        }
+                        Key.DirectionUp -> {
+                            showHudBriefly()
+                            pendingHudFocus = PendingHudFocus.TOP_BAR
+                            true
+                        }
+                        Key.DirectionCenter, Key.Enter -> {
+                            if (selectedSlotIndex == null) {
+                                selectedSlotIndex = activeAudioSlot ?: 0
+                            }
+                            showHudBriefly()
+                            pendingHudFocus = PendingHudFocus.ACTIVE_TILE
+                            true
+                        }
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            showHudBriefly()
+                            false
+                        }
+                        else -> false
+                    }
+                }
+
+                false
+            }
     ) {
         MultiStreamLayout(
             layoutMode = layoutMode,
@@ -275,6 +453,7 @@ fun MultiStreamScreen(
                 .padding(6.dp),
         ) { slotIndex ->
             val slot = slots.getOrNull(slotIndex) ?: return@MultiStreamLayout
+            val neighbors = resolveTileNeighbors(slotIndex, layoutMode, isLandscape)
             StreamTile(
                 slotIndex = slotIndex,
                 slotState = slot,
@@ -282,8 +461,23 @@ fun MultiStreamScreen(
                 hasChannelsAvailable = allChannels.isNotEmpty(),
                 showSlotBadge = showHud,
                 isLocked = isLocked,
-                // Tile pertama (slot 0) mendapat focusRequester agar HUD bisa arahkan D-pad ke sini
-                tileFocusRequester = if (slotIndex == 0) tilesFocusRequester else null,
+                tileFocusRequester = tileFocusRequesters[slotIndex],
+                upFocusTarget = when {
+                    neighbors.upSlot != null -> tileFocusRequesters[neighbors.upSlot]
+                    showHud -> topBarFocusRequester
+                    else -> null
+                },
+                downFocusTarget = when {
+                    neighbors.downSlot != null -> tileFocusRequesters[neighbors.downSlot]
+                    showHud -> if (!isLandscape && hasSelectedActionBar) {
+                        actionChipsFocusRequester
+                    } else {
+                        bottomDockFocusRequester
+                    }
+                    else -> null
+                },
+                leftFocusTarget = neighbors.leftSlot?.let { tileFocusRequesters[it] },
+                rightFocusTarget = neighbors.rightSlot?.let { tileFocusRequesters[it] },
                 onTapEmpty = {
                     if (isLocked) {
                         triggerUnlockHint()
@@ -349,7 +543,11 @@ fun MultiStreamScreen(
                 clockText = clockText,
                 showRotateButton = !isTv,
                 isLandscape = isLandscape,
-                tilesFocusRequester = tilesFocusRequester,
+                activeTileFocusRequester = activeTileFocusRequester,
+                topBarFocusRequester = topBarFocusRequester,
+                actionChipsFocusRequester = actionChipsFocusRequester,
+                bottomDockFocusRequester = bottomDockFocusRequester,
+                slotPillsFocusRequester = slotPillsFocusRequester,
                 onBack = { handleExitRequest() },
                 onToggleRotate = {
                     showHudBriefly()
@@ -404,6 +602,7 @@ fun MultiStreamScreen(
                     MultiStreamManager.closeSlot(idx)
                     if (selectedSlotIndex == idx) selectedSlotIndex = null
                     showHudBriefly()
+                    pendingHudFocus = PendingHudFocus.ACTIVE_TILE
                 },
             )
         }
@@ -558,6 +757,10 @@ fun StreamTile(
     showSlotBadge: Boolean,
     isLocked: Boolean,
     tileFocusRequester: FocusRequester? = null,
+    upFocusTarget: FocusRequester? = null,
+    downFocusTarget: FocusRequester? = null,
+    leftFocusTarget: FocusRequester? = null,
+    rightFocusTarget: FocusRequester? = null,
     onTapEmpty: () -> Unit,
     onTapOccupied: () -> Unit,
     onDoubleTapOccupied: () -> Unit,
@@ -596,10 +799,15 @@ fun StreamTile(
     Box(
         modifier = frMod
             .fillMaxSize()
+            .focusProperties {
+                upFocusTarget?.let { up = it }
+                downFocusTarget?.let { down = it }
+                leftFocusTarget?.let { left = it }
+                rightFocusTarget?.let { right = it }
+            }
             .clip(tileShape)
             .border(borderWidth, borderColor, tileShape)
             .tvFocusRing(tileShape)
-            .focusable()
             .then(interactionModifier)
     ) {
         if (!isOccupied) {
@@ -937,7 +1145,11 @@ fun MultiHud(
     clockText: String,
     showRotateButton: Boolean,
     isLandscape: Boolean,
-    tilesFocusRequester: FocusRequester,
+    activeTileFocusRequester: FocusRequester,
+    topBarFocusRequester: FocusRequester,
+    actionChipsFocusRequester: FocusRequester,
+    bottomDockFocusRequester: FocusRequester,
+    slotPillsFocusRequester: FocusRequester,
     onBack: () -> Unit,
     onToggleRotate: () -> Unit,
     onLockScreen: () -> Unit,
@@ -955,28 +1167,29 @@ fun MultiHud(
     val selectedSlot = selectedSlotIndex?.takeIf { it in 0 until layoutMode.slotCount }?.let { idx ->
         slots.getOrNull(idx)?.takeIf { it.channel != null }
     }
-
-    // FocusRequester per zone agar D-pad bisa pindah antar panel secara terprogram
-    val topBarFr = remember { FocusRequester() }
-    val actionChipsFr = remember { FocusRequester() }
-    val dockLeftFr = remember { FocusRequester() }
-    val dockRightFr = remember { FocusRequester() }
+    val topBarDownTarget = activeTileFocusRequester
+    val lastGlobalChipFr = remember { FocusRequester() }
+    val showMakePrimary = selectedSlot != null &&
+        layoutMode == MultiLayoutMode.FOCUS_3 &&
+        selectedSlot.slotIndex != 0
+    val portraitBottomRowUpTarget = if (selectedSlot != null) {
+        actionChipsFocusRequester
+    } else {
+        activeTileFocusRequester
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ── Top bar ──────────────────────────────────────────────────────────
-        Column(
+        // Top bar (judul, slot terpilih di tengah, jam, rotate, lock)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // Title row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-
                     .clip(RoundedCornerShape(14.dp))
                     .background(BgDeep.copy(alpha = 0.88f))
                     .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
@@ -986,12 +1199,8 @@ fun MultiHud(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .focusRequester(topBarFr)
-                        .focusProperties {
-                            // D-pad Down dari back button → ke tiles atau action chips
-                            down = if (!isLandscape && selectedSlot != null) actionChipsFr
-                                   else tilesFocusRequester
-                        }
+                        .focusRequester(topBarFocusRequester)
+                        .focusProperties { down = topBarDownTarget }
                         .tvFocusRing(CircleShape),
                 ) {
                     Icon(
@@ -1069,7 +1278,9 @@ fun MultiHud(
                 if (showRotateButton) {
                     IconButton(
                         onClick = onToggleRotate,
-                        modifier = Modifier.tvFocusRing(CircleShape),
+                        modifier = Modifier
+                            .focusProperties { down = topBarDownTarget }
+                            .tvFocusRing(CircleShape),
                     ) {
                         Icon(
                             Icons.Default.ScreenRotation,
@@ -1081,7 +1292,9 @@ fun MultiHud(
                 }
                 IconButton(
                     onClick = onLockScreen,
-                    modifier = Modifier.tvFocusRing(CircleShape),
+                    modifier = Modifier
+                        .focusProperties { down = topBarDownTarget }
+                        .tvFocusRing(CircleShape),
                 ) {
                     Icon(
                         Icons.Default.Lock,
@@ -1091,106 +1304,97 @@ fun MultiHud(
                     )
                 }
             }
-
-            // ── Action chips (portrait, slot terpilih) ───────────────────────
-            if (!isLandscape && selectedSlot != null) {
-                val showMakePrimaryTop = selectedSlot.slotIndex != 0 &&
-                    layoutMode == MultiLayoutMode.FOCUS_3
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(BgDeep.copy(alpha = 0.90f))
-                        .border(1.dp, DividerColor, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .focusRequester(actionChipsFr)
-                            .focusProperties {
-                                up = topBarFr
-                                down = tilesFocusRequester
-                            },
-                    ) {
-                        SelectedSlotActionChips(
-                            slotState = selectedSlot,
-                            showMakePrimary = showMakePrimaryTop,
-                            onToggleAudio = { onToggleSlotAudio(selectedSlot.slotIndex) },
-                            onReplace = { onReplaceChannel(selectedSlot.slotIndex) },
-                            onMakePrimary = { onMakePrimary(selectedSlot.slotIndex) },
-                            onToggleResize = { onToggleResizeMode(selectedSlot.slotIndex) },
-                            onFullscreen = { onFullscreenSlot(selectedSlot.slotIndex) },
-                            onClose = { onCloseSlot(selectedSlot.slotIndex) },
-                        )
-                    }
-                }
-            }
         }
 
-        // ── Bottom dock ───────────────────────────────────────────────────────
-        Box(
+        // Bottom dock: seluruh menu kontrol ditempatkan di bagian bawah
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val showMakePrimary = selectedSlot != null &&
-                layoutMode == MultiLayoutMode.FOCUS_3 &&
-                selectedSlot.slotIndex != 0
-
             if (isLandscape) {
-                // Landscape: semua dalam satu baris scrollable
-                Row(
+                // Landscape / TV: kontrol global + aksi slot terpilih dalam 1 baris kapsul di bawah
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-
+                        .wrapContentWidth()
+                        .align(Alignment.CenterHorizontally)
                         .clip(RoundedCornerShape(14.dp))
                         .background(BgDeep.copy(alpha = 0.90f))
                         .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                 ) {
-                    DockGlobalControlsRow(
-                        layoutMode = layoutMode,
-                        activeAudioSlot = activeAudioSlot,
-                        cap720p = cap720p,
-                        firstItemFr = dockLeftFr,
-                        tilesFocusRequester = tilesFocusRequester,
-                        onSelectLayout = onSelectLayout,
-                        onMuteAll = onMuteAll,
-                        onToggleCap720p = onToggleCap720p,
-                    )
-                    if (selectedSlot != null) {
-                        SelectedSlotActionChips(
-                            slotState = selectedSlot,
-                            showMakePrimary = showMakePrimary,
-                            onToggleAudio = { onToggleSlotAudio(selectedSlot.slotIndex) },
-                            onReplace = { onReplaceChannel(selectedSlot.slotIndex) },
-                            onMakePrimary = { onMakePrimary(selectedSlot.slotIndex) },
-                            onToggleResize = { onToggleResizeMode(selectedSlot.slotIndex) },
-                            onFullscreen = { onFullscreenSlot(selectedSlot.slotIndex) },
-                            onClose = { onCloseSlot(selectedSlot.slotIndex) },
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        DockGlobalControlsRow(
+                            layoutMode = layoutMode,
+                            activeAudioSlot = activeAudioSlot,
+                            cap720p = cap720p,
+                            firstItemFr = bottomDockFocusRequester,
+                            upTarget = activeTileFocusRequester,
+                            onSelectLayout = onSelectLayout,
+                            onMuteAll = onMuteAll,
+                            onToggleCap720p = onToggleCap720p,
                         )
+                        if (selectedSlot != null) {
+                            SelectedSlotActionChips(
+                                slotState = selectedSlot,
+                                showMakePrimary = showMakePrimary,
+                                firstItemFr = actionChipsFocusRequester,
+                                upTarget = activeTileFocusRequester,
+                                onToggleAudio = { onToggleSlotAudio(selectedSlot.slotIndex) },
+                                onReplace = { onReplaceChannel(selectedSlot.slotIndex) },
+                                onMakePrimary = { onMakePrimary(selectedSlot.slotIndex) },
+                                onToggleResize = { onToggleResizeMode(selectedSlot.slotIndex) },
+                                onFullscreen = { onFullscreenSlot(selectedSlot.slotIndex) },
+                                onClose = { onCloseSlot(selectedSlot.slotIndex) },
+                            )
+                        }
                     }
                 }
             } else {
-                // Portrait: layout switcher kiri bawah + slot pills kanan bawah
+                // Portrait: strip aksi slot di atas dock bawah, lalu kontrol global kiri + slot pills kanan
+                if (selectedSlot != null) {
+                    Box(
+                        modifier = Modifier
+                            .wrapContentWidth()
+                            .align(Alignment.End)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(BgDeep.copy(alpha = 0.90f))
+                            .border(1.dp, DividerColor, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                            SelectedSlotActionChips(
+                                slotState = selectedSlot,
+                                showMakePrimary = showMakePrimary,
+                                firstItemFr = actionChipsFocusRequester,
+                                upTarget = activeTileFocusRequester,
+                                downTarget = bottomDockFocusRequester,
+                                onToggleAudio = { onToggleSlotAudio(selectedSlot.slotIndex) },
+                                onReplace = { onReplaceChannel(selectedSlot.slotIndex) },
+                                onMakePrimary = { onMakePrimary(selectedSlot.slotIndex) },
+                                onToggleResize = { onToggleResizeMode(selectedSlot.slotIndex) },
+                                onFullscreen = { onFullscreenSlot(selectedSlot.slotIndex) },
+                                onClose = { onCloseSlot(selectedSlot.slotIndex) },
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // Kiri: layout + global controls
                     Box(
                         modifier = Modifier
-                            .wrapContentWidth()
-
+                            .weight(1f, fill = false)
                             .clip(RoundedCornerShape(14.dp))
                             .background(BgDeep.copy(alpha = 0.90f))
                             .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
@@ -1204,8 +1408,10 @@ fun MultiHud(
                                 layoutMode = layoutMode,
                                 activeAudioSlot = activeAudioSlot,
                                 cap720p = cap720p,
-                                firstItemFr = dockLeftFr,
-                                tilesFocusRequester = tilesFocusRequester,
+                                firstItemFr = bottomDockFocusRequester,
+                                lastItemFr = lastGlobalChipFr,
+                                upTarget = portraitBottomRowUpTarget,
+                                rightTargetFromLast = slotPillsFocusRequester,
                                 onSelectLayout = onSelectLayout,
                                 onMuteAll = onMuteAll,
                                 onToggleCap720p = onToggleCap720p,
@@ -1218,7 +1424,6 @@ fun MultiHud(
                     // Kanan bawah: slot audio pills
                     Column(
                         modifier = Modifier
-
                             .clip(RoundedCornerShape(14.dp))
                             .background(BgDeep.copy(alpha = 0.90f))
                             .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
@@ -1232,10 +1437,21 @@ fun MultiHud(
                             val isSlotFocused = selectedSlotIndex == i
                             val slotChannelName = slot?.channel?.name
                             val shape = RoundedCornerShape(8.dp)
-                            val pillFr = if (i == 0) dockRightFr else remember { FocusRequester() }
+                            val pillMod = if (i == 0) {
+                                Modifier
+                                    .focusRequester(slotPillsFocusRequester)
+                                    .focusProperties {
+                                        up = portraitBottomRowUpTarget
+                                        left = lastGlobalChipFr
+                                    }
+                            } else {
+                                Modifier.focusProperties {
+                                    left = lastGlobalChipFr
+                                }
+                            }
 
                             Row(
-                                modifier = Modifier
+                                modifier = pillMod
                                     .clip(shape)
                                     .background(
                                         when {
@@ -1249,15 +1465,7 @@ fun MultiHud(
                                         color = if (isAudio) AccentBlue else DividerColor,
                                         shape = shape,
                                     )
-                                    .focusRequester(pillFr)
-                                    .focusProperties {
-                                        // D-pad Up dari slot pills → kembali ke tiles
-                                        up = tilesFocusRequester
-                                        // D-pad Left dari slot pills → ke dock kiri
-                                        left = dockLeftFr
-                                    }
                                     .tvFocusRing(shape)
-                                    .focusable()
                                     .clickable {
                                         if (slot?.channel == null) {
                                             onReplaceChannel(i)
@@ -1308,21 +1516,24 @@ private fun DockToggleChip(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
     upTarget: FocusRequester? = null,
+    downTarget: FocusRequester? = null,
+    rightTarget: FocusRequester? = null,
 ) {
     val shape = RoundedCornerShape(10.dp)
-    val mod = if (focusRequester != null) {
+    val baseMod = if (focusRequester != null) {
         Modifier.focusRequester(focusRequester)
     } else Modifier
-    val modWithNav = if (upTarget != null) {
-        mod.focusProperties { up = upTarget }
-    } else mod
     Row(
-        modifier = modWithNav
+        modifier = baseMod
+            .focusProperties {
+                upTarget?.let { up = it }
+                downTarget?.let { down = it }
+                rightTarget?.let { right = it }
+            }
             .clip(shape)
             .background(if (active) AccentBlueSoft else BgSurface)
             .border(1.dp, if (active) AccentBlue else DividerColor, shape)
             .tvFocusRing(shape)
-            .focusable()
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1350,7 +1561,9 @@ private fun DockGlobalControlsRow(
     activeAudioSlot: Int?,
     cap720p: Boolean,
     firstItemFr: FocusRequester? = null,
-    tilesFocusRequester: FocusRequester? = null,
+    lastItemFr: FocusRequester? = null,
+    upTarget: FocusRequester? = null,
+    rightTargetFromLast: FocusRequester? = null,
     onSelectLayout: (MultiLayoutMode) -> Unit,
     onMuteAll: () -> Unit,
     onToggleCap720p: () -> Unit,
@@ -1372,7 +1585,7 @@ private fun DockGlobalControlsRow(
                 active = active,
                 onClick = { onSelectLayout(mode) },
                 focusRequester = if (idx == 0) firstItemFr else null,
-                upTarget = tilesFocusRequester,
+                upTarget = upTarget,
             )
         }
 
@@ -1385,7 +1598,7 @@ private fun DockGlobalControlsRow(
             label = "Bisu Semua",
             active = activeAudioSlot == null,
             onClick = onMuteAll,
-            upTarget = tilesFocusRequester,
+            upTarget = upTarget,
         )
 
         DockToggleChip(
@@ -1393,7 +1606,9 @@ private fun DockGlobalControlsRow(
             label = "Max 720p",
             active = cap720p,
             onClick = onToggleCap720p,
-            upTarget = tilesFocusRequester,
+            focusRequester = lastItemFr,
+            upTarget = upTarget,
+            rightTarget = rightTargetFromLast,
         )
     }
 }
@@ -1402,6 +1617,9 @@ private fun DockGlobalControlsRow(
 private fun SelectedSlotActionChips(
     slotState: MultiSlotState,
     showMakePrimary: Boolean,
+    firstItemFr: FocusRequester? = null,
+    upTarget: FocusRequester? = null,
+    downTarget: FocusRequester? = null,
     onToggleAudio: () -> Unit,
     onReplace: () -> Unit,
     onMakePrimary: () -> Unit,
@@ -1422,12 +1640,17 @@ private fun SelectedSlotActionChips(
             label = if (slotState.isAudioActive) "Bisukan" else "Audio",
             active = slotState.isAudioActive,
             onClick = onToggleAudio,
+            focusRequester = firstItemFr,
+            upTarget = upTarget,
+            downTarget = downTarget,
         )
         DockToggleChip(
             icon = Icons.Default.SwapHoriz,
             label = "Ganti",
             active = false,
             onClick = onReplace,
+            upTarget = upTarget,
+            downTarget = downTarget,
         )
         if (showMakePrimary) {
             DockToggleChip(
@@ -1435,6 +1658,8 @@ private fun SelectedSlotActionChips(
                 label = "Utama",
                 active = false,
                 onClick = onMakePrimary,
+                upTarget = upTarget,
+                downTarget = downTarget,
             )
         }
         DockToggleChip(
@@ -1442,18 +1667,24 @@ private fun SelectedSlotActionChips(
             label = if (slotState.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Zoom" else "Fit",
             active = slotState.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
             onClick = onToggleResize,
+            upTarget = upTarget,
+            downTarget = downTarget,
         )
         DockToggleChip(
             icon = Icons.Default.Fullscreen,
             label = "Layar Penuh",
             active = false,
             onClick = onFullscreen,
+            upTarget = upTarget,
+            downTarget = downTarget,
         )
         DockToggleChip(
             icon = Icons.Default.Close,
             label = "Tutup",
             active = false,
             onClick = onClose,
+            upTarget = upTarget,
+            downTarget = downTarget,
         )
     }
 }
