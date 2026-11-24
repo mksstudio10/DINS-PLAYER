@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.res.painterResource
 import com.dinsplayer.app.R
+import com.dinsplayer.app.features.mobile.DpadTextInputGuard
 import com.dinsplayer.app.features.mobile.rememberIsWideNav
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
@@ -293,25 +294,36 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                 }
             } else if (showSearch) {
                 val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Cari saluran...", fontSize = 14.sp, color = TextMuted) },
-                    modifier = Modifier.weight(1f).height(48.dp).tvFocusRing(RoundedCornerShape(10.dp)),
-                    singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor   = AccentBlue,
-                        unfocusedBorderColor = DividerColor,
-                        focusedTextColor     = TextPrimary,
-                        unfocusedTextColor   = TextPrimary,
-                        unfocusedContainerColor = BgElevated,
-                        focusedContainerColor   = BgElevated,
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = TextSecondary) }
-                )
+                DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, finishEditing ->
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        readOnly = readOnly,
+                        interactionSource = interactionSource,
+                        placeholder = { Text("Cari saluran...", fontSize = 14.sp, color = TextMuted) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .tvFocusRing(RoundedCornerShape(10.dp))
+                            .then(guardModifier),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                            finishEditing()
+                            focusManager.clearFocus()
+                        }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor   = AccentBlue,
+                            unfocusedBorderColor = DividerColor,
+                            focusedTextColor     = TextPrimary,
+                            unfocusedTextColor   = TextPrimary,
+                            unfocusedContainerColor = BgElevated,
+                            focusedContainerColor   = BgElevated,
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        leadingIcon = { Icon(Icons.Filled.Search, null, tint = TextSecondary) }
+                    )
+                }
                 IconButton(
                     onClick = { showSearch = false; searchQuery = "" },
                     modifier = Modifier.tvFocusRing(CircleShape)

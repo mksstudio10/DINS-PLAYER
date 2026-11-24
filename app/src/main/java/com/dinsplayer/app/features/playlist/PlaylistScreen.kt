@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
+import com.dinsplayer.app.features.mobile.DpadTextInputGuard
 import com.dinsplayer.app.features.mobile.rememberIsWideNav
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import androidx.compose.foundation.layout.*
@@ -171,25 +172,32 @@ fun PlaylistScreen(
             ) {
                 if (showSearch) {
                     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester)
-                            .tvFocusRing(RoundedCornerShape(10.dp)),
-                        placeholder = { Text("Cari playlist...", color = TextMuted) },
-                        singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(color = TextPrimary),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedContainerColor = BgElevated,
-                            focusedContainerColor = BgElevated,
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        leadingIcon = { Icon(Icons.Filled.Search, null, tint = TextSecondary) }
-                    )
+                    DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, finishEditing ->
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            readOnly = readOnly,
+                            interactionSource = interactionSource,
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focusRequester)
+                                .tvFocusRing(RoundedCornerShape(10.dp))
+                                .then(guardModifier),
+                            placeholder = { Text("Cari playlist...", color = TextMuted) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { finishEditing() }),
+                            textStyle = LocalTextStyle.current.copy(color = TextPrimary),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedContainerColor = BgElevated,
+                                focusedContainerColor = BgElevated,
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = TextSecondary) }
+                        )
+                    }
                     IconButton(
                         onClick = { showSearch = false; searchQuery = "" },
                         modifier = Modifier.tvFocusRing(CircleShape),
@@ -1204,33 +1212,39 @@ private fun AddPlaylistDialog(
                                     fontSize = 11.sp,
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 )
-                                androidx.compose.material3.OutlinedTextField(
-                                    value = customHeaders,
-                                    onValueChange = { customHeaders = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(110.dp),
-                                    placeholder = {
-                                        Text(
-                                            "X-Forwarded-For: 1.2.3.4\nReferer: https://site.com\nAuthorization: Bearer token",
-                                            style = androidx.compose.ui.text.TextStyle(
-                                                color = TextSecondary.copy(alpha = 0.5f),
-                                                fontSize = 11.sp
+                                DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, _ ->
+                                    androidx.compose.material3.OutlinedTextField(
+                                        value = customHeaders,
+                                        onValueChange = { customHeaders = it },
+                                        readOnly = readOnly,
+                                        interactionSource = interactionSource,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(110.dp)
+                                            .tvFocusRing(RoundedCornerShape(10.dp))
+                                            .then(guardModifier),
+                                        placeholder = {
+                                            Text(
+                                                "X-Forwarded-For: 1.2.3.4\nReferer: https://site.com\nAuthorization: Bearer token",
+                                                style = androidx.compose.ui.text.TextStyle(
+                                                    color = TextSecondary.copy(alpha = 0.5f),
+                                                    fontSize = 11.sp
+                                                )
                                             )
-                                        )
-                                    },
-                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 12.sp),
-                                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = AccentBlue,
-                                        unfocusedBorderColor = Color.White.copy(alpha = 0.20f),
-                                        cursorColor = AccentBlue,
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color.White,
-                                        unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
-                                        focusedContainerColor = Color.White.copy(alpha = 0.08f),
-                                    ),
-                                    shape = RoundedCornerShape(10.dp)
-                                )
+                                        },
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 12.sp),
+                                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = AccentBlue,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.20f),
+                                            cursorColor = AccentBlue,
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                                            focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                                        ),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
                             }
                         }
                     }

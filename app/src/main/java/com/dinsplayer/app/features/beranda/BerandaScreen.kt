@@ -10,6 +10,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.dinsplayer.app.features.mobile.DpadTextInputGuard
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
 import androidx.compose.foundation.layout.defaultMinSize
@@ -629,11 +630,11 @@ private fun StreamFormContent(
                 .background(
                     if (isPlayFocused) {
                         androidx.compose.ui.graphics.Brush.horizontalGradient(
-                            colors = listOf(Color(0xFF2196F3), Color(0xFF90CAF9))
+                            colors = listOf(ElectricBlue, AccentHighlight)
                         )
                     } else {
                         androidx.compose.ui.graphics.Brush.horizontalGradient(
-                            colors = listOf(Color(0xFF1565C0), Color(0xFF448AFF))
+                            colors = listOf(AccentBlueDim, ElectricBlue)
                         )
                     }
                 )
@@ -673,74 +674,41 @@ private fun PillTextField(
     firstFocusRequester: FocusRequester? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
 ) {
-    val isTouchMode = LocalInputModeManager.current.inputMode == InputMode.Touch
     var isFocused by remember { mutableStateOf(false) }
-    var isEditing by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val inputFocusRequester = remember { FocusRequester() }
     val localRowFocusRequester = remember { FocusRequester() }
     val rowFocusRequester = firstFocusRequester ?: localRowFocusRequester
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
-    var inputHadFocus by remember { mutableStateOf(false) }
-    var restoreRowFocus by remember { mutableStateOf(false) }
 
-    LaunchedEffect(restoreRowFocus) {
-        if (restoreRowFocus) {
-            delay(60)
-            runCatching { rowFocusRequester.requestFocus() }
-            restoreRowFocus = false
-        }
-    }
-
-    // Jika pengguna beralih ke mode sentuh, matikan state D-pad isEditing agar tidak menghalangi.
-    LaunchedEffect(isTouchMode) {
-        if (isTouchMode && isEditing) {
-            isEditing = false
-        }
-    }
-
-    // Mode TV/D-pad: coba fokus ke BasicTextField setelah terpasang, verifikasi lewat inputHadFocus.
-    LaunchedEffect(isEditing) {
-        if (isEditing && !isTouchMode) {
-            inputHadFocus = false
-            for (wait in listOf(16L, 50L, 120L, 250L)) {
-                delay(wait)
-                runCatching { inputFocusRequester.requestFocus() }
-                delay(16L)
-                if (inputHadFocus) break
-            }
-            if (inputHadFocus) {
-                keyboardController?.show()
+    DpadTextInputGuard { isEditing, readOnly, interactionSource, guardModifier, finishEditing ->
+        LaunchedEffect(isEditing) {
+            if (isEditing) {
                 delay(120)
                 runCatching { bringIntoViewRequester.bringIntoView() }
-            } else {
-                isEditing = false
             }
         }
-    }
 
-    val active = isFocused || isEditing
+        val active = isFocused || isEditing
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bringIntoViewRequester(bringIntoViewRequester)
-            .border(
-                width = if (active) 3.dp else 1.dp,
-                color = if (active) Color.White else Color.White.copy(alpha = 0.20f),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (active) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f))
-            .padding(start = 16.dp, end = if (trailingIcon != null) 6.dp else 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (isTouchMode) {
-            // Mode sentuh: render BasicTextField langsung agar ketukan langsung membuka keyboard & bisa mengetik.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
+                .border(
+                    width = if (active) 3.dp else 1.dp,
+                    color = if (active) Color.White else Color.White.copy(alpha = 0.20f),
+                    shape = RoundedCornerShape(14.dp)
+                )
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (active) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f))
+                .padding(start = 16.dp, end = if (trailingIcon != null) 6.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
+                readOnly = readOnly,
+                interactionSource = interactionSource,
                 singleLine = true,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
@@ -750,7 +718,7 @@ private fun PillTextField(
                 ),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                     onDone = {
-                        keyboardController?.hide()
+                        finishEditing()
                         focusManager.clearFocus()
                     }
                 ),
@@ -758,7 +726,8 @@ private fun PillTextField(
                     .weight(1f)
                     .defaultMinSize(minHeight = 52.dp)
                     .focusRequester(rowFocusRequester)
-                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus },
+                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                    .then(guardModifier),
                 decorationBox = @Composable { innerTextField ->
                     Box(
                         modifier = Modifier
@@ -778,131 +747,11 @@ private fun PillTextField(
                     }
                 }
             )
-        } else {
-            // Mode TV/D-pad: navigasi dengan satu focus target; tekan OK/Enter baru membuka keyboard.
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .defaultMinSize(minHeight = 52.dp)
-                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
-                    .then(
-                        if (!isEditing) {
-                            Modifier
-                                .focusRequester(rowFocusRequester)
-                                .clickable { isEditing = true }
-                                .onPreviewKeyEvent { event ->
-                                    if (event.type == KeyEventType.KeyDown) {
-                                        when (event.key) {
-                                            Key.DirectionCenter, Key.Enter -> {
-                                                isEditing = true
-                                                true
-                                            }
-                                            Key.DirectionDown -> {
-                                                focusManager.moveFocus(FocusDirection.Down)
-                                                true
-                                            }
-                                            Key.DirectionUp -> {
-                                                focusManager.moveFocus(FocusDirection.Up)
-                                                true
-                                            }
-                                            else -> false
-                                        }
-                                    } else false
-                                }
-                        } else Modifier
-                    ),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                if (isEditing) {
-                    BasicTextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(ElectricBlue),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Uri,
-                            imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                        ),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                            onDone = {
-                                isEditing = false
-                                keyboardController?.hide()
-                                restoreRowFocus = true
-                            }
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 52.dp)
-                            .focusRequester(inputFocusRequester)
-                            .onFocusChanged {
-                                if (it.isFocused || it.hasFocus) {
-                                    inputHadFocus = true
-                                } else if (inputHadFocus) {
-                                    isEditing = false
-                                    keyboardController?.hide()
-                                }
-                            }
-                            .onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown) {
-                                    when (event.key) {
-                                        Key.Back -> {
-                                            isEditing = false
-                                            keyboardController?.hide()
-                                            restoreRowFocus = true
-                                            true
-                                        }
-                                        Key.DirectionDown -> {
-                                            isEditing = false
-                                            keyboardController?.hide()
-                                            focusManager.moveFocus(FocusDirection.Down)
-                                            true
-                                        }
-                                        Key.DirectionUp -> {
-                                            isEditing = false
-                                            keyboardController?.hide()
-                                            focusManager.moveFocus(FocusDirection.Up)
-                                            true
-                                        }
-                                        else -> false
-                                    }
-                                } else false
-                            },
-                        decorationBox = @Composable { innerTextField ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 52.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                if (value.isEmpty()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = TextStyle(color = TextMuted, fontSize = 14.sp)
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                } else {
-                    Text(
-                        text = if (value.isNotEmpty()) value else placeholder,
-                        style = TextStyle(
-                            color = if (value.isNotEmpty()) Color.White else TextMuted,
-                            fontSize = 14.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
 
-        if (trailingIcon != null) {
-            Spacer(Modifier.width(4.dp))
-            trailingIcon()
+            if (trailingIcon != null) {
+                Spacer(Modifier.width(4.dp))
+                trailingIcon()
+            }
         }
     }
 }
@@ -944,31 +793,37 @@ private fun PillCustomHeadersAccordion(
             enter = expandVertically(),
             exit = shrinkVertically()
         ) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-                    .height(96.dp),
-                placeholder = {
-                    Text(
-                        text = "User-Agent: Custom\nAuthorization: Bearer token",
-                        style = TextStyle(color = TextMuted, fontSize = 12.sp)
-                    )
-                },
-                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ElectricBlue,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.20f),
-                    cursorColor = ElectricBlue,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.10f),
-                    focusedContainerColor = Color.White.copy(alpha = 0.14f),
-                ),
-                shape = RoundedCornerShape(12.dp)
-            )
+            DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, _ ->
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    readOnly = readOnly,
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .height(96.dp)
+                        .tvFocusRing(RoundedCornerShape(12.dp))
+                        .then(guardModifier),
+                    placeholder = {
+                        Text(
+                            text = "User-Agent: Custom\nAuthorization: Bearer token",
+                            style = TextStyle(color = TextMuted, fontSize = 12.sp)
+                        )
+                    },
+                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricBlue,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.20f),
+                        cursorColor = ElectricBlue,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.10f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.14f),
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
         }
     }
 }

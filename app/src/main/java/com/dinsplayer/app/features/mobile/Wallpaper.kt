@@ -25,6 +25,7 @@ import com.dinsplayer.app.data.KEY_WALLPAPER_MODE
 import com.dinsplayer.app.data.KEY_WALLPAPER_SLOT
 import com.dinsplayer.app.data.settingsDataStore
 import com.dinsplayer.app.ui.theme.BgBase
+import com.dinsplayer.app.ui.theme.BgDeep
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -92,10 +93,6 @@ private val WALLPAPERS = listOf(
  */
 internal val VEIL_ALPHAS = listOf(0xB8, 0xA3, 0xCC)
 
-private val VEIL = Brush.verticalGradient(
-    VEIL_ALPHAS.map { Color(0xFF101622).copy(alpha = it / 255f) }
-)
-
 /**
  * Wallpaper behind every screen.
  *
@@ -157,7 +154,12 @@ fun AppWallpaper(modifier: Modifier = Modifier) {
                 onError = { customFailed = true },
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(VEIL))
+            val veilBrush = remember(BgDeep) {
+                Brush.verticalGradient(
+                    VEIL_ALPHAS.map { BgDeep.copy(alpha = it / 255f) }
+                )
+            }
+            Box(Modifier.fillMaxSize().background(veilBrush))
         }
     }
 }

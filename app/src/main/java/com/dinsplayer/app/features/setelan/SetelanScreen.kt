@@ -8,15 +8,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.dinsplayer.app.features.mobile.DpadTextInputGuard
 import com.dinsplayer.app.features.mobile.WallpaperMode
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -39,6 +43,7 @@ import androidx.compose.ui.input.key.type
 
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,11 +58,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.datastore.preferences.core.edit
 import com.dinsplayer.app.core.epg.EpgManager
+import com.dinsplayer.app.core.epg.EpgUrlStatus
+import com.dinsplayer.app.core.epg.EpgUrlValidator
 import com.dinsplayer.app.core.player.Media3Manager
 import com.dinsplayer.app.data.KEY_AUDIO_SYNC
 import com.dinsplayer.app.data.KEY_BUFFER_SIZE
 import com.dinsplayer.app.data.KEY_EPG_URLS
 import com.dinsplayer.app.data.KEY_HW_DECODING
+import com.dinsplayer.app.data.KEY_THEME_CUSTOM_ARGB
+import com.dinsplayer.app.data.KEY_THEME_PRESET
 import com.dinsplayer.app.data.KEY_WALLPAPER_CUSTOM_REV
 import com.dinsplayer.app.data.KEY_WALLPAPER_CUSTOM_URI
 import com.dinsplayer.app.data.KEY_WALLPAPER_MODE
@@ -84,6 +93,8 @@ fun SetelanScreen(
     val audioSync = prefs?.get(KEY_AUDIO_SYNC) ?: 0f
     val wallpaperMode = WallpaperMode.fromKey(prefs?.get(KEY_WALLPAPER_MODE))
     val customWallpaper = prefs?.get(KEY_WALLPAPER_CUSTOM_URI)
+    val themePresetKey = prefs?.get(KEY_THEME_PRESET) ?: ThemePreset.BLUE.key
+    val customThemeArgb = prefs?.get(KEY_THEME_CUSTOM_ARGB) ?: ThemePreset.BLUE.argb
 
     val pickWallpaper = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -126,6 +137,7 @@ fun SetelanScreen(
     val bufferLabels = listOf("16 detik", "32 detik", "64 detik")
     var showEpgDialog by remember { mutableStateOf(false) }
     var showTosDialog by remember { mutableStateOf(false) }
+    var showCustomThemeDialog by remember { mutableStateOf(false) }
 
     val appVersion = remember(context) {
         try {
@@ -138,6 +150,7 @@ fun SetelanScreen(
     val epgUrls = remember(epgUrlsPref) {
         epgUrlsPref?.toList() ?: EpgManager.defaultUrls
     }
+    val epgStatuses by EpgManager.urlStatuses.collectAsState()
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -244,6 +257,24 @@ fun SetelanScreen(
 
             // Group 2: Tampilan
             SettingsGroup(title = "Tampilan") {
+                ThemeColorSection(
+                    selectedPresetKey = themePresetKey,
+                    customArgb = customThemeArgb,
+                    onSelectPreset = { preset ->
+                        AppThemeState.tokens = resolveThemeTokens(preset.key, customThemeArgb)
+                        scope.launch {
+                            ds.edit { it[KEY_THEME_PRESET] = preset.key }
+                        }
+                    },
+                    onOpenCustomPicker = { showCustomThemeDialog = true }
+                )
+
+                HorizontalDivider(
+                    color = DividerColor,
+                    thickness = 0.8.dp,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp)
+                )
+
                 WallpaperMode.entries.forEachIndexed { index, mode ->
                     if (index > 0) {
                         HorizontalDivider(
@@ -295,8 +326,8 @@ fun SetelanScreen(
                 SettingClickableRow(
                     icon = Icons.Filled.Tv,
                     title = "Sumber EPG (XMLTV)",
-                    subtitle = "${epgUrls.size} tautan EPG aktif",
-                    trailingText = "Atur",
+                    subtitle = EpgUrlValidator.summarizeEpgStatuses(epgUrls, epgStatuses),
+                    trailingText = "Atur & Cek",
                     onClick = { showEpgDialog = true }
                 )
             }
@@ -440,6 +471,37 @@ fun SetelanScreen(
     if (showTosDialog) {
         TermsOfServiceDialog(
             onDismiss = { showTosDialog = false }
+        )
+    }
+
+    if (showCustomThemeDialog) {
+        val seedArgb = if (themePresetKey == ThemePreset.CUSTOM_KEY) {
+            customThemeArgb
+        } else {
+            ThemePreset.fromKey(themePresetKey)?.argb ?: ThemePreset.BLUE.argb
+        }
+        CustomThemeColorDialog(
+            initialArgb = seedArgb,
+            onDismiss = { showCustomThemeDialog = false },
+            onResetDefault = {
+                AppThemeState.tokens = resolveThemeTokens(ThemePreset.BLUE.key, ThemePreset.BLUE.argb)
+                scope.launch {
+                    ds.edit {
+                        it[KEY_THEME_PRESET] = ThemePreset.BLUE.key
+                    }
+                }
+                showCustomThemeDialog = false
+            },
+            onApply = { chosenArgb ->
+                AppThemeState.tokens = resolveThemeTokens(ThemePreset.CUSTOM_KEY, chosenArgb)
+                scope.launch {
+                    ds.edit {
+                        it[KEY_THEME_PRESET] = ThemePreset.CUSTOM_KEY
+                        it[KEY_THEME_CUSTOM_ARGB] = chosenArgb
+                    }
+                }
+                showCustomThemeDialog = false
+            }
         )
     }
 }
@@ -895,9 +957,11 @@ private fun EpgManagementDialog(
 ) {
     var editableUrls by remember { mutableStateOf(urls) }
     var newUrl by remember { mutableStateOf("") }
+    val urlStatuses by EpgManager.urlStatuses.collectAsState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val scope = rememberCoroutineScope()
+    val checkAllFocusRequester = remember { FocusRequester() }
     val firstUrlFocusRequester = remember { FocusRequester() }
     val lastUrlFocusRequester = remember { FocusRequester() }
     val inputFocusRequester = remember { FocusRequester() }
@@ -905,7 +969,15 @@ private fun EpgManagementDialog(
     val cancelBtnFocusRequester = remember { FocusRequester() }
     val saveBtnFocusRequester = remember { FocusRequester() }
 
+    val isCheckingAny = remember(editableUrls, urlStatuses) {
+        editableUrls.any { urlStatuses[it.trim()] is EpgUrlStatus.Checking }
+    }
+    val summaryText = remember(editableUrls, urlStatuses) {
+        EpgUrlValidator.summarizeEpgStatuses(editableUrls, urlStatuses)
+    }
+
     LaunchedEffect(Unit) {
+        scope.launch { EpgManager.checkAllUrls(editableUrls) }
         for (delayMs in listOf(50L, 120L, 250L, 400L)) {
             kotlinx.coroutines.delay(delayMs)
             val focused = if (editableUrls.isNotEmpty()) {
@@ -932,8 +1004,8 @@ private fun EpgManagementDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .widthIn(max = 480.dp)
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 520.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(BgElevated)
                     .border(1.dp, DividerColor, RoundedCornerShape(18.dp))
@@ -944,7 +1016,8 @@ private fun EpgManagementDialog(
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -956,11 +1029,10 @@ private fun EpgManagementDialog(
                         Icon(
                             imageVector = Icons.Filled.Tv,
                             contentDescription = null,
-                            tint = AccentBlue,
+                            tint = ElectricBlue,
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Sumber EPG (XMLTV)",
@@ -971,18 +1043,61 @@ private fun EpgManagementDialog(
                             )
                         )
                         Text(
-                            text = "Kelola daftar URL panduan jadwal siaran",
+                            text = summaryText,
                             style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary, fontSize = 12.sp)
+                        )
+                    }
+
+                    // Tombol Cek Semua URL EPG
+                    val checkAllShape = RoundedCornerShape(10.dp)
+                    Row(
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .focusRequester(checkAllFocusRequester)
+                            .focusProperties {
+                                down = if (editableUrls.isNotEmpty()) firstUrlFocusRequester else inputFocusRequester
+                            }
+                            .clip(checkAllShape)
+                            .background(AccentBlueSoft)
+                            .border(1.dp, ElectricBlue.copy(alpha = 0.7f), checkAllShape)
+                            .tvFocusRing(checkAllShape)
+                            .clickable(enabled = editableUrls.isNotEmpty() && !isCheckingAny) {
+                                scope.launch { EpgManager.checkAllUrls(editableUrls) }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (isCheckingAny) {
+                            CircularProgressIndicator(
+                                color = ElectricBlue,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "Cek Semua",
+                                tint = ElectricBlue,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isCheckingAny) "Mengecek" else "Cek Semua",
+                            color = TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 220.dp)
+                        .heightIn(max = 260.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -990,42 +1105,132 @@ private fun EpgManagementDialog(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 16.dp),
+                                .padding(vertical = 20.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Belum ada URL EPG yang tersimpan",
-                                style = MaterialTheme.typography.bodySmall.copy(color = TextMuted)
+                                text = "Belum ada URL EPG. Tambahkan URL XMLTV di bawah untuk mulai mengecek.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     } else {
                         editableUrls.forEachIndexed { index, url ->
-                            var isDeleteFocused by remember { mutableStateOf(false) }
+                            val status = urlStatuses[url.trim()] ?: EpgUrlStatus.Unknown
                             val isFirst = index == 0
                             val isLast = index == editableUrls.lastIndex
+                            val isCheckingRow = status is EpgUrlStatus.Checking
+                            val borderColor = when (status) {
+                                is EpgUrlStatus.Active -> ColorSuccess.copy(alpha = 0.45f)
+                                is EpgUrlStatus.Error -> ColorError.copy(alpha = 0.55f)
+                                is EpgUrlStatus.Checking -> ElectricBlue.copy(alpha = 0.55f)
+                                EpgUrlStatus.Unknown -> DividerColor
+                            }
+                            val statusText = when (status) {
+                                is EpgUrlStatus.Active -> status.detail
+                                is EpgUrlStatus.Error -> status.reason
+                                EpgUrlStatus.Checking -> "Memeriksa koneksi & XMLTV..."
+                                EpgUrlStatus.Unknown -> "Belum diperiksa"
+                            }
+                            // Warna teks status dijaga kontras >= 4.5:1 di atas BgSurface
+                            val statusColor = when (status) {
+                                is EpgUrlStatus.Active -> Color(0xFF69F0AE)
+                                is EpgUrlStatus.Error -> Color(0xFFFF8A80)
+                                is EpgUrlStatus.Checking -> ElectricBlue
+                                EpgUrlStatus.Unknown -> TextSecondary
+                            }
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isDeleteFocused) AccentBlue.copy(alpha = 0.16f) else BgSurface)
+                                    .background(BgSurface)
                                     .border(
-                                        width = if (isDeleteFocused) 2.dp else 0.8.dp,
-                                        color = if (isDeleteFocused) Color.White else DividerColor,
+                                        width = 0.9.dp,
+                                        color = borderColor,
                                         shape = RoundedCornerShape(10.dp)
                                     )
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = url,
-                                    color = if (isDeleteFocused) Color.White else TextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isDeleteFocused) FontWeight.Medium else FontWeight.Normal,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(Modifier.width(8.dp))
+                                // Indikator status di kiri
+                                Box(
+                                    modifier = Modifier.size(20.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    when (status) {
+                                        EpgUrlStatus.Checking -> CircularProgressIndicator(
+                                            color = ElectricBlue,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        is EpgUrlStatus.Active -> Icon(
+                                            imageVector = Icons.Filled.CheckCircle,
+                                            contentDescription = "Aktif",
+                                            tint = Color(0xFF69F0AE),
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        is EpgUrlStatus.Error -> Icon(
+                                            imageVector = Icons.Filled.ErrorOutline,
+                                            contentDescription = "Error",
+                                            tint = Color(0xFFFF8A80),
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        EpgUrlStatus.Unknown -> Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                                            contentDescription = "Belum dicek",
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.width(10.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = url,
+                                        color = TextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = statusText,
+                                        color = statusColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Spacer(Modifier.width(4.dp))
+
+                                // Tombol cek ulang per URL
+                                IconButton(
+                                    onClick = { scope.launch { EpgManager.checkUrl(url) } },
+                                    enabled = !isCheckingRow,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .then(if (isFirst) Modifier.focusRequester(firstUrlFocusRequester) else Modifier)
+                                        .focusProperties {
+                                            if (isFirst) up = checkAllFocusRequester
+                                            if (isLast) down = inputFocusRequester
+                                        }
+                                        .tvFocusRing(CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = "Cek URL EPG",
+                                        tint = if (isCheckingRow) TextMuted else ElectricBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                // Tombol hapus URL
                                 IconButton(
                                     onClick = {
                                         val nextList = editableUrls.toMutableList().apply { removeAt(index) }
@@ -1040,30 +1245,19 @@ private fun EpgManagementDialog(
                                         }
                                     },
                                     modifier = Modifier
-                                        .size(32.dp)
-                                        .then(if (isFirst) Modifier.focusRequester(firstUrlFocusRequester) else Modifier)
+                                        .size(44.dp)
                                         .then(if (isLast && !isFirst) Modifier.focusRequester(lastUrlFocusRequester) else Modifier)
-                                        .onFocusChanged { isDeleteFocused = it.isFocused || it.hasFocus }
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown && isLast && event.key == Key.DirectionDown) {
-                                                runCatching { inputFocusRequester.requestFocus() }
-                                                return@onPreviewKeyEvent true
-                                            }
-                                            false
+                                        .focusProperties {
+                                            if (isFirst) up = checkAllFocusRequester
+                                            if (isLast) down = inputFocusRequester
                                         }
-                                        .border(
-                                            width = if (isDeleteFocused) 2.dp else 0.dp,
-                                            color = if (isDeleteFocused) Color.White else Color.Transparent,
-                                            shape = CircleShape
-                                        )
-                                        .clip(CircleShape)
-                                        .background(if (isDeleteFocused) ColorError.copy(alpha = 0.28f) else Color.Transparent)
+                                        .tvFocusRing(CircleShape)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Hapus",
-                                        tint = if (isDeleteFocused) Color.White else ColorError.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
+                                        tint = Color(0xFFFF8A80),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
@@ -1079,57 +1273,69 @@ private fun EpgManagementDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     var isInputFocused by remember { mutableStateOf(false) }
-                    OutlinedTextField(
-                        value = newUrl,
-                        onValueChange = { newUrl = it },
-                        placeholder = { Text("https://example.com/epg.xml.gz", color = TextMuted, fontSize = 12.sp) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(inputFocusRequester)
-                            .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus }
-                            .border(
-                                width = if (isInputFocused) 2.5.dp else 0.dp,
-                                color = if (isInputFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown) {
-                                    when (event.key) {
-                                        Key.DirectionUp -> {
-                                            if (editableUrls.isNotEmpty()) {
-                                                val target = if (editableUrls.size == 1) firstUrlFocusRequester else lastUrlFocusRequester
-                                                runCatching { target.requestFocus() }
+                    DpadTextInputGuard { isEditing, readOnly, interactionSource, guardModifier, finishEditing ->
+                        OutlinedTextField(
+                            value = newUrl,
+                            onValueChange = { newUrl = it },
+                            readOnly = readOnly,
+                            interactionSource = interactionSource,
+                            placeholder = { Text("https://example.com/epg.xml.gz", color = TextMuted, fontSize = 12.sp) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(inputFocusRequester)
+                                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus }
+                                .border(
+                                    width = if (isInputFocused || isEditing) 2.5.dp else 0.dp,
+                                    color = if (isInputFocused || isEditing) Color.White else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .onPreviewKeyEvent { event ->
+                                    if (!isEditing && event.type == KeyEventType.KeyDown) {
+                                        when (event.key) {
+                                            Key.DirectionUp -> {
+                                                if (editableUrls.isNotEmpty()) {
+                                                    val target = if (editableUrls.size == 1) firstUrlFocusRequester else lastUrlFocusRequester
+                                                    runCatching { target.requestFocus() }
+                                                    return@onPreviewKeyEvent true
+                                                } else {
+                                                    runCatching { checkAllFocusRequester.requestFocus() }
+                                                    return@onPreviewKeyEvent true
+                                                }
+                                            }
+                                            Key.DirectionDown -> {
+                                                runCatching { cancelBtnFocusRequester.requestFocus() }
                                                 return@onPreviewKeyEvent true
                                             }
-                                        }
-                                        Key.DirectionDown -> {
-                                            runCatching { cancelBtnFocusRequester.requestFocus() }
-                                            return@onPreviewKeyEvent true
-                                        }
-                                        Key.DirectionRight -> {
-                                            if (newUrl.isEmpty()) {
+                                            Key.DirectionRight -> {
                                                 runCatching { addBtnFocusRequester.requestFocus() }
                                                 return@onPreviewKeyEvent true
                                             }
+                                            else -> {}
                                         }
-                                        else -> {}
                                     }
+                                    false
                                 }
-                                false
-                            },
-                        singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = TextPrimary),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = DividerColor,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            cursorColor = AccentBlue,
-                            focusedContainerColor = BgSurface,
-                            unfocusedContainerColor = BgSurface,
+                                .then(guardModifier),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                onDone = { finishEditing() }
+                            ),
+                            textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = TextPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.White,
+                                unfocusedBorderColor = DividerColor,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                cursorColor = AccentBlue,
+                                focusedContainerColor = BgSurface,
+                                unfocusedContainerColor = BgSurface,
+                            )
                         )
-                    )
+                    }
 
                     var isAddFocused by remember { mutableStateOf(false) }
                     Button(
@@ -1138,10 +1344,11 @@ private fun EpgManagementDialog(
                             if (trimmed.isNotBlank() && !editableUrls.contains(trimmed)) {
                                 editableUrls = editableUrls + trimmed
                                 newUrl = ""
+                                scope.launch { EpgManager.checkUrl(trimmed) }
                             }
                         },
                         modifier = Modifier
-                            .height(48.dp)
+                            .heightIn(min = 48.dp)
                             .focusRequester(addBtnFocusRequester)
                             .onFocusChanged { isAddFocused = it.isFocused || it.hasFocus }
                             .onPreviewKeyEvent { event ->
@@ -1155,6 +1362,9 @@ private fun EpgManagementDialog(
                                             if (editableUrls.isNotEmpty()) {
                                                 val target = if (editableUrls.size == 1) firstUrlFocusRequester else lastUrlFocusRequester
                                                 runCatching { target.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            } else {
+                                                runCatching { checkAllFocusRequester.requestFocus() }
                                                 return@onPreviewKeyEvent true
                                             }
                                         }
@@ -1180,7 +1390,7 @@ private fun EpgManagementDialog(
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(18.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1191,6 +1401,7 @@ private fun EpgManagementDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 44.dp)
                             .focusRequester(cancelBtnFocusRequester)
                             .onFocusChanged { isCancelFocused = it.isFocused || it.hasFocus }
                             .onPreviewKeyEvent { event ->
@@ -1227,6 +1438,7 @@ private fun EpgManagementDialog(
                         onClick = { onSave(editableUrls) },
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 44.dp)
                             .focusRequester(saveBtnFocusRequester)
                             .onFocusChanged { isSaveFocused = it.isFocused || it.hasFocus }
                             .onPreviewKeyEvent { event ->
@@ -1417,6 +1629,523 @@ private fun TosSection(
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeColorSection(
+    selectedPresetKey: String,
+    customArgb: Int,
+    onSelectPreset: (ThemePreset) -> Unit,
+    onOpenCustomPicker: () -> Unit,
+) {
+    val activePreset = ThemePreset.fromKey(selectedPresetKey)
+    val activeLabel = if (selectedPresetKey == ThemePreset.CUSTOM_KEY) {
+        "Kustom (${ThemeColorMath.formatHex(customArgb)})"
+    } else {
+        val preset = activePreset ?: ThemePreset.BLUE
+        val suffix = if (preset == ThemePreset.BLUE) " (Default)" else ""
+        "${preset.label}$suffix"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SettingIcon(icon = Icons.Filled.Palette, tint = ElectricBlue)
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Warna Tema Dasar",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    text = "Aktif: $activeLabel",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            // Preview gabungan latar tema & warna aksen
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(BgBase)
+                    .border(2.dp, DividerColor, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(AccentBlue)
+                )
+            }
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ThemePreset.entries.forEach { preset ->
+                val isSelected = selectedPresetKey == preset.key
+                ThemeSwatchChip(
+                    label = preset.label,
+                    swatchColor = Color(preset.argb),
+                    selected = isSelected,
+                    onClick = { onSelectPreset(preset) }
+                )
+            }
+
+            val isCustom = selectedPresetKey == ThemePreset.CUSTOM_KEY
+            ThemeSwatchChip(
+                label = "Kustom",
+                swatchColor = if (isCustom) Color(customArgb) else null,
+                selected = isCustom,
+                onClick = onOpenCustomPicker
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemeSwatchChip(
+    label: String,
+    swatchColor: Color?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(if (selected) AccentBlueSoft else BgSurface)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) ElectricBlue else DividerColor,
+                shape = shape
+            )
+            .tvFocusRing(shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .then(
+                    if (swatchColor != null) {
+                        Modifier.background(swatchColor)
+                    } else {
+                        Modifier.background(
+                            Brush.sweepGradient(
+                                listOf(
+                                    Color(0xFFE53935),
+                                    Color(0xFFF59E0B),
+                                    Color(0xFF10B981),
+                                    Color(0xFF06B6D4),
+                                    Color(0xFF2979FF),
+                                    Color(0xFF8B5CF6),
+                                    Color(0xFFE11D48),
+                                    Color(0xFFE53935),
+                                )
+                            )
+                        )
+                    }
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.45f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(11.dp)
+                )
+            }
+        }
+        Text(
+            text = label,
+            color = if (selected) TextPrimary else TextSecondary,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CustomThemeColorDialog(
+    initialArgb: Int,
+    onDismiss: () -> Unit,
+    onResetDefault: () -> Unit,
+    onApply: (Int) -> Unit,
+) {
+    val initHsl = remember(initialArgb) { ThemeColorMath.rgbToHsl(initialArgb) }
+    var hue by remember { mutableFloatStateOf(initHsl[0]) }
+    var saturation by remember { mutableFloatStateOf(initHsl[1].coerceIn(0.25f, 1f)) }
+    val currentArgb = remember(hue, saturation) {
+        ThemeColorMath.hslToArgb(hue, saturation, 0.52f)
+    }
+    var hexInput by remember { mutableStateOf(ThemeColorMath.formatHex(currentArgb)) }
+    var hexError by remember { mutableStateOf(false) }
+    val previewTokens = remember(currentArgb) { ThemeColorMath.deriveTokens(currentArgb) }
+    val applyFocusRequester = remember { FocusRequester() }
+
+    val hueGradient = remember {
+        Brush.horizontalGradient(
+            listOf(
+                Color(0xFFFF0000),
+                Color(0xFFFFFF00),
+                Color(0xFF00FF00),
+                Color(0xFF00FFFF),
+                Color(0xFF0000FF),
+                Color(0xFFFF00FF),
+                Color(0xFFFF0000),
+            )
+        )
+    }
+
+    fun syncFromSliders(newHue: Float, newSat: Float) {
+        hue = newHue.coerceIn(0f, 360f)
+        saturation = newSat.coerceIn(0.25f, 1f)
+        val argb = ThemeColorMath.hslToArgb(hue, saturation, 0.52f)
+        hexInput = ThemeColorMath.formatHex(argb)
+        hexError = false
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .widthIn(max = 500.dp)
+                    .fillMaxWidth(0.92f)
+                    .padding(16.dp)
+                    .pointerInput(Unit) { detectTapGestures { } },
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = previewTokens.bgDialog),
+                border = androidx.compose.foundation.BorderStroke(1.dp, previewTokens.divider)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(previewTokens.accentSoft)
+                                .border(1.dp, previewTokens.accent, RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.Palette,
+                                contentDescription = null,
+                                tint = previewTokens.accentBright,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Pilih Warna Tema Kustom",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            )
+                            Text(
+                                text = "Geser warna atau masukkan kode hex #RRGGBB",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = TextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            )
+                        }
+                    }
+
+                    // Pratinjau langsung tema & latar gelapnya
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(previewTokens.bgBase)
+                            .border(1.dp, previewTokens.divider, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(previewTokens.accent)
+                                .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Pratinjau Latar & Aksen",
+                                color = TextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = ThemeColorMath.formatHex(currentArgb),
+                                color = previewTokens.accentBright,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(previewTokens.accentSoft)
+                                .border(1.dp, previewTokens.accent, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "Aktif",
+                                color = previewTokens.accentBright,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(previewTokens.accent)
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "Putar",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Slider Hue (mendukung sentuh & D-pad Kiri/Kanan)
+                    ThemeChannelSlider(
+                        label = "Spektrum Warna (Hue)",
+                        valueText = "${hue.toInt()}°",
+                        value = hue,
+                        valueRange = 0f..360f,
+                        stepDelta = 12f,
+                        trackBrush = hueGradient,
+                        thumbColor = previewTokens.accentBright,
+                        onValueChange = { syncFromSliders(it, saturation) }
+                    )
+
+                    // Slider Saturasi (mendukung sentuh & D-pad Kiri/Kanan)
+                    val satGradient = Brush.horizontalGradient(
+                        listOf(
+                            Color(ThemeColorMath.hslToArgb(hue, 0.25f, 0.52f)),
+                            Color(ThemeColorMath.hslToArgb(hue, 1f, 0.52f)),
+                        )
+                    )
+                    ThemeChannelSlider(
+                        label = "Kepekatan (Saturasi)",
+                        valueText = "${(saturation * 100).toInt()}%",
+                        value = saturation,
+                        valueRange = 0.25f..1f,
+                        stepDelta = 0.05f,
+                        trackBrush = satGradient,
+                        thumbColor = previewTokens.accentBright,
+                        onValueChange = { syncFromSliders(hue, it) }
+                    )
+
+                    // Input kode Hex manual
+                    DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, finishEditing ->
+                        OutlinedTextField(
+                            value = hexInput,
+                            onValueChange = { raw ->
+                                val sanitized = raw.take(7)
+                                hexInput = sanitized
+                                val parsed = ThemeColorMath.parseHexColor(sanitized)
+                                if (parsed != null) {
+                                    val parsedHsl = ThemeColorMath.rgbToHsl(parsed)
+                                    hue = parsedHsl[0]
+                                    saturation = parsedHsl[1].coerceIn(0.25f, 1f)
+                                    hexError = false
+                                } else {
+                                    hexError = true
+                                }
+                            },
+                            readOnly = readOnly,
+                            interactionSource = interactionSource,
+                            label = { Text("Kode Hex", fontSize = 12.sp) },
+                            placeholder = { Text("#2979FF", color = TextMuted) },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                onDone = { finishEditing() }
+                            ),
+                            isError = hexError,
+                            supportingText = if (hexError) {
+                                { Text("Gunakan 6 digit hex, misalnya #2979FF", fontSize = 11.sp) }
+                            } else null,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = previewTokens.accentBright,
+                                unfocusedBorderColor = previewTokens.divider,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedContainerColor = previewTokens.bgBase,
+                                unfocusedContainerColor = previewTokens.bgBase,
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusRing(RoundedCornerShape(10.dp))
+                                .then(guardModifier)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = onResetDefault,
+                            modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
+                        ) {
+                            Text("Reset Biru", color = TextSecondary, fontSize = 12.sp)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.tvFocusRing(RoundedCornerShape(8.dp))
+                            ) {
+                                Text("Batal", color = TextSecondary)
+                            }
+                            Button(
+                                onClick = {
+                                    val finalArgb = ThemeColorMath.parseHexColor(hexInput) ?: currentArgb
+                                    onApply(finalArgb)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = previewTokens.accent),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .focusRequester(applyFocusRequester)
+                                    .tvFocusRing(RoundedCornerShape(10.dp))
+                            ) {
+                                Text("Terapkan", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeChannelSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    stepDelta: Float,
+    trackBrush: Brush,
+    thumbColor: Color,
+    onValueChange: (Float) -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+            .tvFocusRing(RoundedCornerShape(10.dp))
+            .background(if (isFocused) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+            .focusable()
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (keyEvent.key) {
+                    Key.DirectionLeft -> {
+                        val next = (value - stepDelta).coerceIn(valueRange.start, valueRange.endInclusive)
+                        onValueChange(next)
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        val next = (value + stepDelta).coerceIn(valueRange.start, valueRange.endInclusive)
+                        onValueChange(next)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(valueText, color = thumbColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(trackBrush)
+        )
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = thumbColor,
+                inactiveTrackColor = DividerColor,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(26.dp)
+                .focusProperties { canFocus = false }
         )
     }
 }

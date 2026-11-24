@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import com.dinsplayer.app.features.mobile.DpadTextInputGuard
 import com.dinsplayer.app.features.mobile.tvFocusRing
 import com.dinsplayer.app.features.mobile.tvMarquee
 import androidx.compose.ui.focus.onFocusChanged
@@ -69,11 +70,11 @@ import com.dinsplayer.app.ui.theme.ElectricBlue
 import com.dinsplayer.app.ui.theme.TextPrimary
 import com.dinsplayer.app.ui.theme.TextSecondary
 
-private val MenuBgPanel     = BgDialog
-private val MenuBgHeader    = BgBase
-private val MenuBgRow       = BgElevated
-private val MenuBgRowActive = BgSurface
-private val MenuCyan        = ElectricBlue
+private val MenuBgPanel     get() = BgDialog
+private val MenuBgHeader    get() = BgBase
+private val MenuBgRow       get() = BgElevated
+private val MenuBgRowActive get() = BgSurface
+private val MenuCyan        get() = ElectricBlue
 private val MenuTextWhite   = TextPrimary
 private val MenuTextMuted   = TextSecondary
 private val MenuDivider     = DividerColor
@@ -338,40 +339,45 @@ private fun PortraitLayout(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             var isSearchFocused by remember { mutableStateOf(false) }
-            androidx.compose.foundation.text.BasicTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .focusRequester(searchFocusRequester)
-                    .onFocusChanged { isSearchFocused = it.isFocused || it.hasFocus }
-                    .background(MenuBgRow, RoundedCornerShape(8.dp))
-                    .border(
-                        width = if (isSearchFocused) 2.dp else 1.dp,
-                        color = if (isSearchFocused) Color.White else MenuDivider,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 12.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(color = MenuTextWhite, fontSize = 14.sp),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    keyboardController?.hide()
-                    if (filtered.isNotEmpty()) runCatching { channelListFocusRequester.requestFocus() }
-                }),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(MenuCyan),
-                decorationBox = { innerTextField ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize()) {
-                        Icon(Icons.Filled.Search, null, tint = MenuTextMuted, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 14.sp)
-                            innerTextField()
+            DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, finishEditing ->
+                androidx.compose.foundation.text.BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    readOnly = readOnly,
+                    interactionSource = interactionSource,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .focusRequester(searchFocusRequester)
+                        .onFocusChanged { isSearchFocused = it.isFocused || it.hasFocus }
+                        .then(guardModifier)
+                        .background(MenuBgRow, RoundedCornerShape(8.dp))
+                        .border(
+                            width = if (isSearchFocused) 2.dp else 1.dp,
+                            color = if (isSearchFocused) Color.White else MenuDivider,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 12.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = MenuTextWhite, fontSize = 14.sp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        finishEditing()
+                        if (filtered.isNotEmpty()) runCatching { channelListFocusRequester.requestFocus() }
+                    }),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MenuCyan),
+                    decorationBox = { innerTextField ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize()) {
+                            Icon(Icons.Filled.Search, null, tint = MenuTextMuted, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 14.sp)
+                                innerTextField()
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
             IconButton(
                 onClick = {
                     keyboardController?.hide()
@@ -697,62 +703,67 @@ private fun LandscapeLayout(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 var isSearchFocused by remember { mutableStateOf(false) }
-                androidx.compose.foundation.text.BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .focusRequester(searchFocusRequester)
-                        .onFocusChanged { isSearchFocused = it.isFocused || it.hasFocus }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                when (event.key) {
-                                    Key.DirectionDown -> {
-                                        if (filtered.isNotEmpty()) {
-                                            keyboardController?.hide()
-                                            runCatching { channelListFocusRequester.requestFocus() }
-                                            return@onPreviewKeyEvent true
+                DpadTextInputGuard { _, readOnly, interactionSource, guardModifier, finishEditing ->
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        readOnly = readOnly,
+                        interactionSource = interactionSource,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .focusRequester(searchFocusRequester)
+                            .onFocusChanged { isSearchFocused = it.isFocused || it.hasFocus }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.DirectionDown -> {
+                                            if (filtered.isNotEmpty()) {
+                                                finishEditing()
+                                                runCatching { channelListFocusRequester.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
                                         }
-                                    }
-                                    Key.DirectionLeft -> {
-                                        if (searchQuery.isEmpty()) {
-                                            keyboardController?.hide()
-                                            runCatching { closeButtonFocusRequester.requestFocus() }
-                                            return@onPreviewKeyEvent true
+                                        Key.DirectionLeft -> {
+                                            if (searchQuery.isEmpty()) {
+                                                finishEditing()
+                                                runCatching { closeButtonFocusRequester.requestFocus() }
+                                                return@onPreviewKeyEvent true
+                                            }
                                         }
+                                        else -> {}
                                     }
-                                    else -> {}
+                                }
+                                false
+                            }
+                            .then(guardModifier)
+                            .background(MenuBgRow, RoundedCornerShape(8.dp))
+                            .border(
+                                width = if (isSearchFocused) 2.5.dp else 1.dp,
+                                color = if (isSearchFocused) Color.White else MenuDivider,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 10.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = MenuTextWhite, fontSize = 13.sp),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            finishEditing()
+                            if (filtered.isNotEmpty()) runCatching { channelListFocusRequester.requestFocus() }
+                        }),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MenuCyan),
+                        decorationBox = { innerTextField ->
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.Filled.Search, null, tint = if (isSearchFocused) Color.White else MenuTextMuted, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Box(modifier = Modifier.weight(1f)) {
+                                    if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 13.sp)
+                                    innerTextField()
                                 }
                             }
-                            false
                         }
-                        .background(MenuBgRow, RoundedCornerShape(8.dp))
-                        .border(
-                            width = if (isSearchFocused) 2.5.dp else 1.dp,
-                            color = if (isSearchFocused) Color.White else MenuDivider,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        .padding(horizontal = 10.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(color = MenuTextWhite, fontSize = 13.sp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {
-                        keyboardController?.hide()
-                        if (filtered.isNotEmpty()) runCatching { channelListFocusRequester.requestFocus() }
-                    }),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MenuCyan),
-                    decorationBox = { innerTextField ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize()) {
-                            Icon(Icons.Filled.Search, null, tint = if (isSearchFocused) Color.White else MenuTextMuted, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) Text("Cari saluran...", color = MenuTextMuted, fontSize = 13.sp)
-                                innerTextField()
-                            }
-                        }
-                    }
-                )
+                    )
+                }
             }
             HorizontalDivider(color = MenuDivider, thickness = 0.5.dp)
             if (filtered.isEmpty()) {

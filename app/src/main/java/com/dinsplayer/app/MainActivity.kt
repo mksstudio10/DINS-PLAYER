@@ -23,7 +23,7 @@ class MainActivity : AppCompatActivity() {
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(
-                android.graphics.Color.parseColor("#0F2847")
+                android.graphics.Color.TRANSPARENT
             ),
             navigationBarStyle = SystemBarStyle.dark(
                 android.graphics.Color.TRANSPARENT

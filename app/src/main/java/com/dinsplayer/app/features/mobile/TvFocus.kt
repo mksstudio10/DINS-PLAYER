@@ -15,10 +15,24 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
-
-import androidx.compose.foundation.focusable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 
 /**
  * Visible focus ring for D-pad and keyboard navigation.
@@ -63,3 +77,120 @@ internal fun Modifier.tvFocusRing(
  * nothing will move.
  */
 internal fun Modifier.tvMarquee(): Modifier = basicMarquee()
+
+/**
+ * Menjaga input teks agar fokus D-pad saja tidak memunculkan soft-keyboard sebelum diklik / tekan OK.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+internal fun DpadTextInputGuard(
+    allowMoveLeftRightWhenNotEditing: Boolean = true,
+    onEditingChanged: ((Boolean) -> Unit)? = null,
+    content: @Composable (
+        isEditing: Boolean,
+        readOnly: Boolean,
+        interactionSource: MutableInteractionSource,
+        guardModifier: Modifier,
+        finishEditing: () -> Unit,
+    ) -> Unit,
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    fun setEditing(next: Boolean) {
+        if (isEditing != next) {
+            isEditing = next
+            onEditingChanged?.invoke(next)
+        }
+    }
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            if (interaction is PressInteraction.Press) {
+                setEditing(true)
+            }
+        }
+    }
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            delay(40L)
+            keyboardController?.show()
+        } else {
+            keyboardController?.hide()
+        }
+    }
+
+    val finishEditing: () -> Unit = {
+        setEditing(false)
+        keyboardController?.hide()
+    }
+
+    val guardModifier = Modifier
+        .onFocusChanged { state ->
+            val nowFocused = state.isFocused || state.hasFocus
+            if (isFocused && !nowFocused && isEditing) {
+                setEditing(false)
+                keyboardController?.hide()
+            }
+            isFocused = nowFocused
+        }
+        .onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            if (!isEditing) {
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        setEditing(true)
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        focusManager.moveFocus(FocusDirection.Down)
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        focusManager.moveFocus(FocusDirection.Up)
+                        true
+                    }
+                    Key.DirectionLeft -> if (allowMoveLeftRightWhenNotEditing) {
+                        focusManager.moveFocus(FocusDirection.Left)
+                        true
+                    } else false
+                    Key.DirectionRight -> if (allowMoveLeftRightWhenNotEditing) {
+                        focusManager.moveFocus(FocusDirection.Right)
+                        true
+                    } else false
+                    else -> false
+                }
+            } else {
+                when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        setEditing(false)
+                        keyboardController?.hide()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+
+    InterceptPlatformTextInput(
+        interceptor = { request, nextHandler ->
+            if (isEditing) {
+                nextHandler.startInputMethod(request)
+            } else {
+                awaitCancellation()
+            }
+        }
+    ) {
+        content(
+            isEditing,
+            !isEditing,
+            interactionSource,
+            guardModifier,
+            finishEditing,
+        )
+    }
+}

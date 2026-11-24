@@ -1,24 +1,32 @@
 package com.dinsplayer.app.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
-// Background layers — Elevated dark slate-navy (brightened from pitch black for visual depth)
-val BgDeep       = Color(0xFF0B0F17)   // deep base
-val BgBase       = Color(0xFF141A26)   // base background
-val BgElevated   = Color(0xD91E2636)   // cards (translucent slate-navy)
-val BgSurface    = Color(0xFF273042)   // elevated surfaces
-val BgGlass      = Color(0x24FFFFFF)
+internal object AppThemeState {
+    var tokens by mutableStateOf(DefaultBlueTokens)
+}
 
-// Brand accent
-val AccentBlue       = Color(0xFF2979FF)
-val AccentBlueDim    = Color(0xFF1C54B2)
-val AccentBlueSoft   = Color(0x332979FF)
-val AccentBlueFaint  = Color(0x1A2979FF)
-val ElectricBlue     = Color(0xFF448AFF)
-val ElectricBlueDark = Color(0xFF2979FF)
+// Background layers - mengikuti nuansa warna tema pilihan pengguna
+val BgDeep: Color get() = AppThemeState.tokens.bgDeep
+val BgBase: Color get() = AppThemeState.tokens.bgBase
+val BgElevated: Color get() = AppThemeState.tokens.bgElevated
+val BgSurface: Color get() = AppThemeState.tokens.bgSurface
+val BgGlass: Color = Color(0x24FFFFFF)
 
-// Dialog / overlay panel — same surface as player dialogs and channel menu
-val BgDialog     = Color(0xFF1C2436)
+// Brand accent - dinamis sesuai warna tema pilihan pengguna
+val AccentBlue: Color get() = AppThemeState.tokens.accent
+val AccentBlueDim: Color get() = AppThemeState.tokens.accentDim
+val AccentBlueSoft: Color get() = AppThemeState.tokens.accentSoft
+val AccentBlueFaint: Color get() = AppThemeState.tokens.accentFaint
+val ElectricBlue: Color get() = AppThemeState.tokens.accentBright
+val ElectricBlueDark: Color get() = AppThemeState.tokens.accent
+val AccentHighlight: Color get() = AppThemeState.tokens.accentHighlight
+
+// Dialog / overlay panel
+val BgDialog: Color get() = AppThemeState.tokens.bgDialog
 
 // Frosted glass tokens (minimal use)
 val GlassCardBg      = Color(0x14FFFFFF)
@@ -41,8 +49,8 @@ val ColorError   = Color(0xFFE53935)
 val ColorWarning = Color(0xFFFFB300)
 
 // Divider / border
-val DividerColor = Color(0xFF333D52)
+val DividerColor: Color get() = AppThemeState.tokens.divider
 
 // Bottom nav
-val NavSelected   = ElectricBlue
+val NavSelected: Color get() = AppThemeState.tokens.accentBright
 val NavUnselected = Color(0xFF94A0B4)
