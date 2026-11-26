@@ -1452,7 +1452,7 @@ private fun AddPlaylistDialog(
                 }
 
                 SlimTextField(
-                    value = name, onValueChange = { name = it },
+                    value = name, onValueChange = { name = it; duplicateError = "" },
                     placeholder = "Nama Alias",
                     keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next)
                 )
@@ -1497,7 +1497,7 @@ private fun AddPlaylistDialog(
                     )
                 }
 
-                // Pesan duplikat inline
+                // Pesan validasi / duplikat inline
                 if (duplicateError.isNotBlank()) {
                     Row(
                         modifier = Modifier
@@ -1737,6 +1737,20 @@ private fun AddPlaylistDialog(
                                 0 -> urlOrRaw.isNotBlank()
                                 1 -> serverUrl.startsWith("http") && username.isNotBlank()
                                 else -> false
+                            }
+                            if (name.isBlank() || !sourceValid) {
+                                val missing = buildList {
+                                    if (name.isBlank()) add("Nama Alias")
+                                    if (selectedType == 0) {
+                                        if (urlOrRaw.isBlank()) add("URL atau Isi Raw M3U")
+                                    } else {
+                                        if (serverUrl.isBlank()) add("URL Server Xtream")
+                                        else if (!serverUrl.startsWith("http")) add("URL Server Xtream (harus diawali http:// atau https://)")
+                                        if (username.isBlank()) add("Username")
+                                    }
+                                }
+                                duplicateError = "Lengkapi dulu data yang wajib diisi: ${missing.joinToString(", ")}."
+                                return@Button
                             }
                             if (name.isNotBlank() && sourceValid) {
                                 val trimmedSource = urlOrRaw.trim()

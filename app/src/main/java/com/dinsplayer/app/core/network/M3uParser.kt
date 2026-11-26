@@ -144,6 +144,13 @@ object M3uParser {
             }
         }
 
+        // File, pasted and internal playlists never go through fetchWithFallback, so the
+        // playlist's own User-Agent was silently dropped and channels played with the default.
+        if (fallbackUa == null) {
+            fallbackUa = playlist.userAgent?.trim()
+                ?.takeIf { it.isNotBlank() && it != "EMPTY_UA" && !UserAgents.isPremium(it) }
+        }
+
         val cleanContent = content.removePrefix("\uFEFF")
         onProgress("Memulai parsing playlist...")
         val channels = parseM3uString(playlist.id, cleanContent, fallbackUa, onProgress)

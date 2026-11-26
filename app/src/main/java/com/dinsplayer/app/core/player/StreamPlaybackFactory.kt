@@ -229,16 +229,21 @@ object StreamPlaybackFactory {
 
         // Hindari UA ExoPlayer/DinsPlayer atau kosong karena sering diblokir WAF CDN
         val defaultAndroidUa = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.60 Mobile Safari/537.36"
-        val finalUa = when {
-            userAgent.isNotBlank() && userAgent != "EMPTY_UA" &&
-                !userAgent.contains("ExoPlayer", ignoreCase = true) &&
-                !userAgent.contains("DinsPlayer", ignoreCase = true) -> userAgent
-            else -> defaultAndroidUa
-        }
+        // A User-Agent the user picked on purpose (including the DinsPlayer preset or any
+        // string containing "ExoPlayer") must be honoured. Only blank/default falls back.
+        // Control characters would make OkHttp throw, so they are stripped.
+        val cleanUa = userAgent.filter { !it.isISOControl() }.trim()
+        val finalUa = if (cleanUa.isNotBlank() && cleanUa != "EMPTY_UA") cleanUa else defaultAndroidUa
 
         val requestHeaders = buildMap<String, String> {
             put("User-Agent", finalUa)
-            putAll(headers)
+            // A "User-Agent:" line in custom headers wins, but replaces ours instead of
+            // adding a second differently-cased key.
+            headers.forEach { (k, v) ->
+                if (k.equals("User-Agent", ignoreCase = true)) {
+                    if (v.isNotBlank()) put("User-Agent", v.filter { !it.isISOControl() }.trim())
+                } else put(k, v)
+            }
             val lowerUrl = resolvedUrl.lowercase()
             if (lowerUrl.contains("vidio") || lowerUrl.contains("akamaized.net")) {
                 if (!keys.any { it.equals("Referer", ignoreCase = true) }) put("Referer", "https://m.vidio.com/")

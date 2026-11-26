@@ -105,7 +105,7 @@ fun BerandaScreen(
             return
         }
         shouldRestoreFocus = true
-        val ua = if (targetForm.userAgent == UserAgentOption.CUSTOM) targetForm.customUserAgent else targetForm.userAgent.value
+        val ua = if (targetForm.userAgent == UserAgentOption.CUSTOM) targetForm.customUserAgent.trim() else targetForm.userAgent.value
 
         var finalDrmUri: String? = targetForm.drmLicense.trim().takeIf { it.isNotBlank() }
         var detectedScheme: String? = when (targetForm.drmScheme) {
