@@ -104,6 +104,8 @@ val GermanStrings = AppStrings(
     noChannelFoundShort = "Keine Sender",
     noAudioTracks = "Keine weiteren Audiospuren",
     noSubtitles = "Keine Untertitel verfügbar",
+    selectServer = "Server wählen",
+    allServersFailed = "Alle Server fehlgeschlagen",
 
     settingsTitle = "Einstellungen",
     settingsSubtitle = "Player-Einstellungen und App-Konfiguration",
@@ -195,6 +197,8 @@ val GermanStrings = AppStrings(
     fmtEpgSummaryMixed = { total, act, err -> "$total EPG-Links ($act aktiv, $err Fehler)" },
     fmtEpgActiveHttp = { code -> "Aktiv (HTTP $code)" },
     fmtEpgActivePrograms = { count -> "Aktiv ($count Sendungen)" },
+    fmtSwitchingBackupServer = { failedIdx, nextIdx -> "Server $failedIdx fehlgeschlagen, wechsle zu Server $nextIdx..." },
+    fmtRetryingStream = { attempt, max -> "Stream wird erneut versucht ($attempt/$max)..." },
     languageNames = mapOf(
         AppLanguage.ENGLISH to "Englisch",
         AppLanguage.INDONESIAN to "Indonesisch",
@@ -312,6 +316,8 @@ val ItalianStrings = AppStrings(
     noChannelFoundShort = "Nessun canale",
     noAudioTracks = "Nessuna traccia audio aggiuntiva",
     noSubtitles = "Nessun sottotitolo disponibile",
+    selectServer = "Seleziona server",
+    allServersFailed = "Tutti i server hanno fallito",
 
     settingsTitle = "Impostazioni",
     settingsSubtitle = "Preferenze lettore e configurazione app",
@@ -403,6 +409,8 @@ val ItalianStrings = AppStrings(
     fmtEpgSummaryMixed = { total, act, err -> "$total link EPG ($act attivi, $err errori)" },
     fmtEpgActiveHttp = { code -> "Attivo (HTTP $code)" },
     fmtEpgActivePrograms = { count -> "Attivo ($count programmi)" },
+    fmtSwitchingBackupServer = { failedIdx, nextIdx -> "Server $failedIdx non riuscito, passo al Server $nextIdx..." },
+    fmtRetryingStream = { attempt, max -> "Nuovo tentativo stream ($attempt/$max)..." },
     languageNames = mapOf(
         AppLanguage.ENGLISH to "Inglese",
         AppLanguage.INDONESIAN to "Indonesiano",
@@ -520,6 +528,8 @@ val PortugueseStrings = AppStrings(
     noChannelFoundShort = "Nenhum canal",
     noAudioTracks = "Nenhuma faixa de áudio adicional",
     noSubtitles = "Nenhuma legenda disponível",
+    selectServer = "Selecionar servidor",
+    allServersFailed = "Todos os servidores falharam",
 
     settingsTitle = "Ajustes",
     settingsSubtitle = "Preferências do player e configuração",
@@ -611,6 +621,8 @@ val PortugueseStrings = AppStrings(
     fmtEpgSummaryMixed = { total, act, err -> "$total links EPG ($act ativos, $err erro)" },
     fmtEpgActiveHttp = { code -> "Ativo (HTTP $code)" },
     fmtEpgActivePrograms = { count -> "Ativo ($count programas)" },
+    fmtSwitchingBackupServer = { failedIdx, nextIdx -> "Servidor $failedIdx falhou, mudando para Servidor $nextIdx..." },
+    fmtRetryingStream = { attempt, max -> "Tentando stream novamente ($attempt/$max)..." },
     languageNames = mapOf(
         AppLanguage.ENGLISH to "Inglês",
         AppLanguage.INDONESIAN to "Indonésio",
@@ -728,6 +740,8 @@ val RussianStrings = AppStrings(
     noChannelFoundShort = "Каналы не найдены",
     noAudioTracks = "Нет других аудиодорожек",
     noSubtitles = "Нет субтитров",
+    selectServer = "Выбрать сервер",
+    allServersFailed = "Все серверы не отвечают",
 
     settingsTitle = "Настройки",
     settingsSubtitle = "Параметры плеера и приложения",
@@ -819,6 +833,8 @@ val RussianStrings = AppStrings(
     fmtEpgSummaryMixed = { total, act, err -> "$total ссылок EPG ($act активно, $err ош.)" },
     fmtEpgActiveHttp = { code -> "Активен (HTTP $code)" },
     fmtEpgActivePrograms = { count -> "Активен ($count передач)" },
+    fmtSwitchingBackupServer = { failedIdx, nextIdx -> "Сервер $failedIdx не отвечает, переход на Сервер $nextIdx..." },
+    fmtRetryingStream = { attempt, max -> "Повтор потока ($attempt/$max)..." },
     languageNames = mapOf(
         AppLanguage.ENGLISH to "Английский",
         AppLanguage.INDONESIAN to "Индонезийский",
@@ -936,6 +952,8 @@ val ArabicStrings = AppStrings(
     noChannelFoundShort = "لا توجد قنوات",
     noAudioTracks = "لا توجد مسارات صوتية إضافية",
     noSubtitles = "لا توجد ترجمات متاحة",
+    selectServer = "اختر الخادم",
+    allServersFailed = "فشلت جميع الخوادم",
 
     settingsTitle = "الإعدادات",
     settingsSubtitle = "تفضيلات المشغل وإعدادات التطبيق",
@@ -1027,6 +1045,8 @@ val ArabicStrings = AppStrings(
     fmtEpgSummaryMixed = { total, act, err -> "$total روابط EPG ($act نشط، $err خطأ)" },
     fmtEpgActiveHttp = { code -> "نشط (HTTP $code)" },
     fmtEpgActivePrograms = { count -> "نشط ($count برنامج)" },
+    fmtSwitchingBackupServer = { failedIdx, nextIdx -> "فشل الخادم $failedIdx، جاري التحويل إلى الخادم $nextIdx..." },
+    fmtRetryingStream = { attempt, max -> "إعادة محاولة البث ($attempt/$max)..." },
     languageNames = mapOf(
         AppLanguage.ENGLISH to "الإنجليزية",
         AppLanguage.INDONESIAN to "الإندونيسية",

@@ -66,8 +66,10 @@ import com.dinsplayer.app.data.KEY_BUFFER_SIZE
 import com.dinsplayer.app.data.KEY_HW_DECODING
 import com.dinsplayer.app.data.settingsDataStore
 import com.dinsplayer.app.data.models.PlayerState
+import com.dinsplayer.app.data.models.StreamSource
 import com.dinsplayer.app.ui.theme.AccentBlue
 import com.dinsplayer.app.ui.theme.BgDialog
+import com.dinsplayer.app.ui.theme.ElectricBlue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -101,6 +103,7 @@ fun PlayerScreen(
     var showSettings     by remember { mutableStateOf(false) }
     var showChannelMenu  by remember { mutableStateOf(false) }
     var showVrDialog     by remember { mutableStateOf(false) }
+    var showServerDialog by remember { mutableStateOf(false) }
     var currentVrMode    by remember { mutableStateOf(VrMode.NORMAL) }
     var isLocked         by remember { mutableStateOf(false) }
     var showUnlock       by remember { mutableStateOf(false) }
@@ -116,6 +119,7 @@ fun PlayerScreen(
             showChannelMenu = false
             showSettings = false
             showVrDialog = false
+            showServerDialog = false
         }
     }
 
@@ -143,6 +147,9 @@ fun PlayerScreen(
     val channels by Media3Manager.activeChannels.collectAsState()
     val activeChannelId by Media3Manager.activeChannelId.collectAsState()
     val streamFormat by Media3Manager.streamFormat.collectAsState()
+    val streamSources by Media3Manager.streamSources.collectAsState()
+    val currentSourceIndex by Media3Manager.currentSourceIndex.collectAsState()
+    val fallbackStatus by Media3Manager.fallbackStatus.collectAsState()
     
     val epgData by com.dinsplayer.app.core.epg.EpgManager.epgData.collectAsState()
     val normalizedIndex by com.dinsplayer.app.core.epg.EpgManager.normalizedIndex.collectAsState()
@@ -198,17 +205,9 @@ fun PlayerScreen(
 
     val playChannel: (ChannelItem) -> Unit = { ch ->
         Media3Manager.setActiveChannelId(ch.id)
-        Media3Manager.play(
-            url           = ch.url,
-            title         = ch.name,
-            userAgent     = ch.userAgent,
-            headers       = buildMap {
-                if (ch.referer.isNotBlank()) put("Referer", ch.referer)
-                if (ch.origin.isNotBlank()) put("Origin", ch.origin)
-            },
-            drmScheme     = ch.drmScheme,
-            drmLicenseUri = ch.drmLicenseUri,
-            manifestType  = ch.manifestType.takeIf { it.isNotBlank() },
+        Media3Manager.playSources(
+            sources = ch.resolvedSources(),
+            title   = ch.name,
         )
     }
 
@@ -256,21 +255,21 @@ fun PlayerScreen(
 
     LaunchedEffect(showControls) {
         if (showControls) {
-            if (!showChannelMenu && !showSettings && !showVrDialog && !isLocked) {
+            if (!showChannelMenu && !showSettings && !showVrDialog && !showServerDialog && !isLocked) {
                 delay(120L)
                 try {
                     playPauseFocusRequester.requestFocus()
                 } catch (_: Exception) {}
             }
-        } else if (!showChannelMenu && !showSettings && !showVrDialog && !(isLocked && showUnlock)) {
+        } else if (!showChannelMenu && !showSettings && !showVrDialog && !showServerDialog && !(isLocked && showUnlock)) {
             try {
                 rootFocusRequester.requestFocus()
             } catch (_: Exception) {}
         }
     }
 
-    LaunchedEffect(showChannelMenu, showSettings, showVrDialog) {
-        if (showChannelMenu || showSettings || showVrDialog) {
+    LaunchedEffect(showChannelMenu, showSettings, showVrDialog, showServerDialog) {
+        if (showChannelMenu || showSettings || showVrDialog || showServerDialog) {
             showControls = false
         } else {
             delay(100L)
@@ -814,6 +813,26 @@ fun PlayerScreen(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 24.dp)
                     )
+                    if (fallbackStatus.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = fallbackStatus,
+                            color = ElectricBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    } else if (streamSources.size > 1) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Server ${currentSourceIndex + 1}/${streamSources.size}",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 12.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    }
                 }
             }
         }
@@ -853,8 +872,8 @@ fun PlayerScreen(
                                 val ch = activeChannel
                                 if (ch != null) {
                                     playChannel(ch)
-                                } else if (currentUrl.isNotBlank()) {
-                                    Media3Manager.play(url = currentUrl, title = currentTitle)
+                                } else {
+                                    Media3Manager.retryCurrentChannel()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
@@ -1045,9 +1064,12 @@ fun PlayerScreen(
                                         Box(Modifier.size(7.dp).background(Color.Red, RoundedCornerShape(50)))
                                     }
                                     val liveText = if (isLive) "LIVE" else ""
-                                    val separator = if (isLive && streamFormat.isNotEmpty()) " • " else ""
+                                    val serverBadge = if (streamSources.size > 1) "Server ${currentSourceIndex + 1}/${streamSources.size}" else ""
+                                    val statusLine = listOf(liveText, streamFormat, serverBadge)
+                                        .filter { it.isNotEmpty() }
+                                        .joinToString(" • ")
                                     Text(
-                                        text = "$liveText$separator$streamFormat",
+                                        text = statusLine,
                                         color = Color.White.copy(alpha = 0.85f),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
@@ -1215,6 +1237,15 @@ fun PlayerScreen(
                                         contentDescription = "Menu Saluran",
                                         tint = if (showChannelMenu) AccentBlue else Color.White,
                                         modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                if (streamSources.size > 1) {
+                                    ServerSelectorPillButton(
+                                        currentIndex = currentSourceIndex,
+                                        totalCount = streamSources.size,
+                                        isActive = showServerDialog,
+                                        onClick = { showServerDialog = true },
                                     )
                                 }
                             }
@@ -1536,20 +1567,7 @@ fun PlayerScreen(
                                 IconButton(
                                     onClick = {
                                         if (channels.isNotEmpty() && currentChannelIndex > 0) {
-                                            val prev = channels[currentChannelIndex - 1]
-                                            Media3Manager.setActiveChannelId(prev.id)
-                                            Media3Manager.play(
-                                                url = prev.url,
-                                                title = prev.name,
-                                                userAgent = prev.userAgent,
-                                                headers = buildMap {
-                                                    if (prev.referer.isNotBlank()) put("Referer", prev.referer)
-                                                    if (prev.origin.isNotBlank()) put("Origin", prev.origin)
-                                                },
-                                                drmScheme = prev.drmScheme,
-                                                drmLicenseUri = prev.drmLicenseUri,
-                                                manifestType = prev.manifestType.takeIf { it.isNotBlank() },
-                                            )
+                                            playChannel(channels[currentChannelIndex - 1])
                                         }
                                     },
                                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
@@ -1577,20 +1595,7 @@ fun PlayerScreen(
                                 IconButton(
                                     onClick = {
                                         if (channels.isNotEmpty() && currentChannelIndex < channels.size - 1) {
-                                            val next = channels[currentChannelIndex + 1]
-                                            Media3Manager.setActiveChannelId(next.id)
-                                            Media3Manager.play(
-                                                url = next.url,
-                                                title = next.name,
-                                                userAgent = next.userAgent,
-                                                headers = buildMap {
-                                                    if (next.referer.isNotBlank()) put("Referer", next.referer)
-                                                    if (next.origin.isNotBlank()) put("Origin", next.origin)
-                                                },
-                                                drmScheme = next.drmScheme,
-                                                drmLicenseUri = next.drmLicenseUri,
-                                                manifestType = next.manifestType.takeIf { it.isNotBlank() },
-                                            )
+                                            playChannel(channels[currentChannelIndex + 1])
                                         }
                                     },
                                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
@@ -1599,6 +1604,16 @@ fun PlayerScreen(
                                 ) {
                                     Icon(Icons.Filled.SkipNext, "Berikutnya", tint = Color.White.copy(alpha = if (channels.isNotEmpty() && currentChannelIndex < channels.size - 1) 1f else 0.4f), modifier = Modifier.size(24.dp))
                                 }
+                            }
+
+                            if (streamSources.size > 1) {
+                                ServerSelectorPillButton(
+                                    currentIndex = currentSourceIndex,
+                                    totalCount = streamSources.size,
+                                    isActive = showServerDialog,
+                                    onClick = { showServerDialog = true },
+                                    modifier = Modifier.align(Alignment.CenterEnd),
+                                )
                             }
                         }
 
@@ -1617,21 +1632,7 @@ fun PlayerScreen(
             // whenever the playing channel was missing from the list.
             activeChannelId = activeChannelId,
             isLandscape     = isLandscape,
-            onChannelClick  = { ch ->
-                Media3Manager.setActiveChannelId(ch.id)
-                Media3Manager.play(
-                    url           = ch.url,
-                    title         = ch.name,
-                    userAgent     = ch.userAgent,
-                    headers       = buildMap {
-                        if (ch.referer.isNotBlank()) put("Referer", ch.referer)
-                        if (ch.origin.isNotBlank()) put("Origin", ch.origin)
-                    },
-                    drmScheme     = ch.drmScheme,
-                    drmLicenseUri = ch.drmLicenseUri,
-                    manifestType  = ch.manifestType.takeIf { it.isNotBlank() },
-                )
-            },
+            onChannelClick  = playChannel,
             onDismiss       = { showChannelMenu = false },
         )
 
@@ -2006,7 +2007,190 @@ fun PlayerScreen(
                 onDismiss = { showVrDialog = false }
             )
         }
+
+        // Backup Server Selector Dialog
+        if (showServerDialog && streamSources.size > 1) {
+            ServerSelectorDialog(
+                sources = streamSources,
+                currentIndex = currentSourceIndex,
+                onSelectServer = { index ->
+                    Media3Manager.switchSource(index)
+                    showServerDialog = false
+                },
+                onDismiss = { showServerDialog = false },
+            )
+        }
     } // end outer Box
+}
+
+@Composable
+private fun ServerSelectorPillButton(
+    currentIndex: Int,
+    totalCount: Int,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isActive) AccentBlue.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.14f))
+            .border(1.dp, if (isActive) AccentBlue else Color.White.copy(alpha = 0.18f), RoundedCornerShape(12.dp))
+            .tvFocusRing(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Dns,
+            contentDescription = com.dinsplayer.app.core.i18n.S.selectServer,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = "S${currentIndex + 1}/$totalCount",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun ServerSelectorDialog(
+    sources: List<StreamSource>,
+    currentIndex: Int,
+    onSelectServer: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val activeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        for (delayMs in listOf(50L, 120L, 250L, 400L)) {
+            delay(delayMs)
+            if (runCatching { activeFocusRequester.requestFocus() }.isSuccess) {
+                break
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.72f))
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 300.dp, max = 460.dp)
+                    .fillMaxWidth(0.88f)
+                    .background(BgDialog, RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp))
+                    .padding(18.dp)
+                    .pointerInput(Unit) { detectTapGestures { /* consume inside panel */ } },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Dns,
+                        contentDescription = null,
+                        tint = AccentBlue,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = com.dinsplayer.app.core.i18n.S.selectServer,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .tvFocusRing(CircleShape),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = com.dinsplayer.app.core.i18n.S.close,
+                            tint = Color.White.copy(alpha = 0.75f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    sources.forEachIndexed { index, source ->
+                        val isSelected = index == currentIndex
+                        var isRowFocused by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (isSelected) Modifier.focusRequester(activeFocusRequester) else Modifier)
+                                .onFocusChanged { isRowFocused = it.isFocused || it.hasFocus }
+                                .border(
+                                    width = if (isRowFocused) 2.5.dp else 1.dp,
+                                    color = if (isRowFocused) Color.White else if (isSelected) AccentBlue else Color.White.copy(alpha = 0.10f),
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    when {
+                                        isRowFocused -> AccentBlue.copy(alpha = 0.35f)
+                                        isSelected   -> AccentBlue.copy(alpha = 0.18f)
+                                        else         -> Color.White.copy(alpha = 0.05f)
+                                    }
+                                )
+                                .clickable { onSelectServer(index) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = source.serverName,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected || isRowFocused) FontWeight.Bold else FontWeight.Medium,
+                                )
+                                Text(
+                                    text = source.url,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (isSelected) {
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = com.dinsplayer.app.core.i18n.S.active,
+                                    tint = ElectricBlue,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

@@ -62,6 +62,7 @@ import com.dinsplayer.app.data.db.AppDatabase
 import com.dinsplayer.app.features.beranda.BerandaScreen
 import com.dinsplayer.app.features.livetv.LiveTvScreen
 import com.dinsplayer.app.features.lokal.LokalScreen
+import com.dinsplayer.app.features.playlist.PlaylistImportRequest
 import com.dinsplayer.app.features.playlist.PlaylistScreen
 import com.dinsplayer.app.features.setelan.SetelanScreen
 import androidx.compose.ui.Alignment
@@ -100,7 +101,10 @@ private fun localizedNavItems(): List<NavItem> {
 }
 
 @Composable
-fun MobileAppScreen() {
+fun MobileAppScreen(
+    importRequest: PlaylistImportRequest? = null,
+    onImportConsumed: () -> Unit = {},
+) {
     val context = LocalContext.current
     val wide = rememberIsWideNav()
     val homeTab = remember(wide) { initialTabForLayout(wide) }
@@ -110,8 +114,11 @@ fun MobileAppScreen() {
     val canOpenLiveTv = playlistsState?.any { it.isActive } ?: true
 
     // Gunakan remember (bukan rememberSaveable) supaya setelah language/RTL change,
-    // tab selalu mulai dari homeTab yang sesuai layout (TV → Live TV, HP → Beranda).
-    var selectedTab by remember(homeTab) { mutableIntStateOf(homeTab) }
+    // tab selalu mulai dari homeTab yang sesuai layout (TV → Live TV, HP → Beranda),
+    // kecuali dibuka lewat Share/Open-with agar langsung masuk ke tab Playlist.
+    var selectedTab by remember(homeTab) {
+        mutableIntStateOf(if (importRequest != null) TAB_PLAYLIST else homeTab)
+    }
     // playlistId yang dipilih dari PlaylistScreen untuk di-load di LiveTV
     var selectedPlaylistId by remember { mutableStateOf<Long?>(null) }
     var showExitDialog by remember { mutableStateOf(false) }
@@ -148,10 +155,9 @@ fun MobileAppScreen() {
         com.dinsplayer.app.core.epg.EpgManager.syncEpgs(urls)
     }
 
-    // A playlist file opened from another app: jump to the Playlist tab, which opens the form.
-    val importUri by com.dinsplayer.app.features.playlist.PlaylistImport.pending.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(importUri) {
-        if (importUri != null) selectedTab = TAB_PLAYLIST
+    // A playlist file opened or shared from another app: jump to the Playlist tab, which opens the form.
+    androidx.compose.runtime.LaunchedEffect(importRequest?.id) {
+        if (importRequest != null) selectedTab = TAB_PLAYLIST
     }
 
     val onTabSelected: (Int) -> Unit = { index ->
@@ -218,8 +224,8 @@ fun MobileAppScreen() {
                             TAB_LOKAL    -> LokalScreen(firstFocusRequester = lokalFocusRequester)
                             TAB_LIVETV   -> LiveTvScreen(initialPlaylistId = selectedPlaylistId)
                             TAB_PLAYLIST -> PlaylistScreen(
-                                importUri = importUri,
-                                onImportConsumed = { com.dinsplayer.app.features.playlist.PlaylistImport.consume() },
+                                importRequest = importRequest,
+                                onImportConsumed = onImportConsumed,
                                 onPlaylistSelected = { playlistId: Long ->
                                     selectedPlaylistId = playlistId
                                     selectedTab = TAB_LIVETV

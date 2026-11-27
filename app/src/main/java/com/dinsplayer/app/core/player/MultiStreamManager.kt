@@ -107,6 +107,9 @@ object MultiStreamManager {
     private val players = arrayOfNulls<ExoPlayer>(MAX_SLOTS)
     private val trackSelectors = arrayOfNulls<DefaultTrackSelector>(MAX_SLOTS)
     private val audioProcessors = Array(MAX_SLOTS) { AudioOffsetProcessor() }
+    private val slotSourceIndices = IntArray(MAX_SLOTS)
+    private val slotDrmRetries = IntArray(MAX_SLOTS)
+    private val pendingSlotFallbacks = arrayOfNulls<Runnable>(MAX_SLOTS)
     private val playerSequences = java.util.Collections.synchronizedMap(
         java.util.IdentityHashMap<ExoPlayer, AtomicLong>()
     )
@@ -123,6 +126,11 @@ object MultiStreamManager {
         Executors.newSingleThreadExecutor { r ->
             Thread(r, "MultiStream-Worker-$it").apply { isDaemon = true }
         }
+    }
+
+    private fun cancelSlotFallback(slotIndex: Int) {
+        pendingSlotFallbacks[slotIndex]?.let { mainHandler.removeCallbacks(it) }
+        pendingSlotFallbacks[slotIndex] = null
     }
 
     fun initSession(context: Context, initialChannels: List<ChannelItem> = emptyList()) {
@@ -181,6 +189,16 @@ object MultiStreamManager {
     }
 
     fun playChannel(slotIndex: Int, channel: ChannelItem) {
+        if (slotIndex !in 0 until MAX_SLOTS) return
+        cancelSlotFallback(slotIndex)
+        slotSourceIndices[slotIndex] = 0
+        slotDrmRetries[slotIndex] = 0
+        updateSlot(slotIndex) { it.copy(channel = channel, playerState = PlayerState.Loading) }
+        refreshTrackCaps()
+        loadSlotSource(slotIndex, channel, sourceIndex = 0)
+    }
+
+    private fun loadSlotSource(slotIndex: Int, channel: ChannelItem, sourceIndex: Int) {
         val ctx = appContext ?: return
         if (slotIndex !in 0 until MAX_SLOTS) return
 
@@ -191,12 +209,16 @@ object MultiStreamManager {
         val seqCounter = playerSequences.getOrPut(targetPlayer) { AtomicLong(0L) }
         val seq = seqCounter.incrementAndGet()
 
-        updateSlot(slotIndex) { it.copy(channel = channel, playerState = PlayerState.Loading) }
-        refreshTrackCaps()
+        val sources = channel.resolvedSources()
+        val safeIndex = sourceIndex.coerceIn(0, sources.lastIndex)
+        val source = sources[safeIndex]
+        slotSourceIndices[slotIndex] = safeIndex
+
+        updateSlot(slotIndex) { it.copy(playerState = PlayerState.Loading) }
 
         val headers = buildMap {
-            if (channel.referer.isNotBlank()) put("Referer", channel.referer)
-            if (channel.origin.isNotBlank()) put("Origin", channel.origin)
+            if (source.referer.isNotBlank()) put("Referer", source.referer)
+            if (source.origin.isNotBlank()) put("Origin", source.origin)
         }
 
         playExecutors[slotIndex].execute {
@@ -210,12 +232,12 @@ object MultiStreamManager {
                     okClient = okClient,
                     drmProvider = drmProv,
                     retryPolicy = retryPol,
-                    url = channel.url,
-                    userAgent = channel.userAgent,
+                    url = source.url,
+                    userAgent = source.userAgent,
                     headers = headers,
-                    drmScheme = channel.drmScheme,
-                    drmLicenseUri = channel.drmLicenseUri,
-                    manifestType = channel.manifestType,
+                    drmScheme = source.drmScheme.takeIf { it.isNotBlank() },
+                    drmLicenseUri = source.drmLicenseUri,
+                    manifestType = source.manifestType,
                 )
 
                 if (seq != seqCounter.get()) return@execute
@@ -235,10 +257,69 @@ object MultiStreamManager {
                 runOnMain {
                     val liveIdx = findSlotIndex(targetPlayer)
                     if (liveIdx < 0 || seq != seqCounter.get()) return@runOnMain
-                    updateSlot(liveIdx) {
-                        it.copy(playerState = PlayerState.Error("Gagal mempersiapkan channel: ${e.message}"))
-                    }
+                    handleSlotFailure(
+                        liveIdx,
+                        targetPlayer,
+                        seq,
+                        seqCounter,
+                        0,
+                        "Gagal mempersiapkan channel: ${e.message}",
+                    )
                 }
+            }
+        }
+    }
+
+    private fun handleSlotFailure(
+        slotIndex: Int,
+        targetPlayer: ExoPlayer,
+        seq: Long,
+        seqCounter: AtomicLong,
+        errorCode: Int,
+        message: String,
+    ) {
+        if (seq != seqCounter.get()) return
+        val channel = _slots.value.getOrNull(slotIndex)?.channel ?: return
+        val sources = channel.resolvedSources()
+        val curIdx = slotSourceIndices[slotIndex]
+
+        when (StreamFallbackPolicy.decide(errorCode, curIdx, sources.size, slotDrmRetries[slotIndex])) {
+            FallbackAction.REPREPARE_LIVE_WINDOW -> {
+                targetPlayer.seekToDefaultPosition()
+                targetPlayer.prepare()
+                targetPlayer.play()
+            }
+            FallbackAction.RETRY_SAME_SOURCE -> {
+                slotDrmRetries[slotIndex]++
+                cancelSlotFallback(slotIndex)
+                updateSlot(slotIndex) { it.copy(playerState = PlayerState.Loading) }
+                val retryRunnable = Runnable {
+                    val liveIdx = findSlotIndex(targetPlayer)
+                    if (liveIdx < 0 || seq != seqCounter.get()) return@Runnable
+                    val liveChannel = _slots.value.getOrNull(liveIdx)?.channel ?: return@Runnable
+                    loadSlotSource(liveIdx, liveChannel, slotSourceIndices[liveIdx])
+                }
+                pendingSlotFallbacks[slotIndex] = retryRunnable
+                mainHandler.postDelayed(retryRunnable, 1500L)
+            }
+            FallbackAction.SWITCH_NEXT_SOURCE -> {
+                slotDrmRetries[slotIndex] = 0
+                val nextIdx = curIdx + 1
+                cancelSlotFallback(slotIndex)
+                targetPlayer.stop()
+                updateSlot(slotIndex) { it.copy(playerState = PlayerState.Loading) }
+                val switchRunnable = Runnable {
+                    val liveIdx = findSlotIndex(targetPlayer)
+                    if (liveIdx < 0 || seq != seqCounter.get()) return@Runnable
+                    val liveChannel = _slots.value.getOrNull(liveIdx)?.channel ?: return@Runnable
+                    loadSlotSource(liveIdx, liveChannel, nextIdx)
+                }
+                pendingSlotFallbacks[slotIndex] = switchRunnable
+                mainHandler.postDelayed(switchRunnable, 1000L)
+            }
+            FallbackAction.FAIL_ALL -> {
+                cancelSlotFallback(slotIndex)
+                updateSlot(slotIndex) { it.copy(playerState = PlayerState.Error(message)) }
             }
         }
     }
@@ -304,6 +385,18 @@ object MultiStreamManager {
         audioProcessors[a] = audioProcessors[b]
         audioProcessors[b] = apA
 
+        val srcIdxA = slotSourceIndices[a]
+        slotSourceIndices[a] = slotSourceIndices[b]
+        slotSourceIndices[b] = srcIdxA
+
+        val drmRetryA = slotDrmRetries[a]
+        slotDrmRetries[a] = slotDrmRetries[b]
+        slotDrmRetries[b] = drmRetryA
+
+        val fbA = pendingSlotFallbacks[a]
+        pendingSlotFallbacks[a] = pendingSlotFallbacks[b]
+        pendingSlotFallbacks[b] = fbA
+
         syncVolumes()
     }
 
@@ -362,11 +455,14 @@ object MultiStreamManager {
                 if (idx < 0) return
                 val state = when (playbackState) {
                     Player.STATE_IDLE ->
-                        if (player.playerError != null || _slots.value.getOrNull(idx)?.channel == null) return
+                        if (player.playerError != null || pendingSlotFallbacks[idx] != null || _slots.value.getOrNull(idx)?.channel == null) return
                         else PlayerState.Idle
                     Player.STATE_BUFFERING -> PlayerState.Loading
-                    Player.STATE_READY ->
+                    Player.STATE_READY -> {
+                        cancelSlotFallback(idx)
+                        slotDrmRetries[idx] = 0
                         if (player.playWhenReady) PlayerState.Playing else PlayerState.Paused
+                    }
                     Player.STATE_ENDED -> {
                         if (player.isCurrentMediaItemLive || player.duration == androidx.media3.common.C.TIME_UNSET) {
                             player.seekToDefaultPosition()
@@ -383,18 +479,13 @@ object MultiStreamManager {
             override fun onPlayerError(error: PlaybackException) {
                 val idx = findSlotIndex(player)
                 if (idx < 0) return
-                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
-                    player.seekToDefaultPosition()
-                    player.prepare()
-                    player.play()
-                    return
-                }
                 val activeCount = _slots.value.count {
                     it.playerState is PlayerState.Playing || it.playerState is PlayerState.Loading
                 }
                 val message = StreamPlaybackFactory.mapPlaybackError(error, activeCount)
-                updateSlot(idx) { it.copy(playerState = PlayerState.Error(message)) }
                 android.util.Log.e("MultiStreamManager", "Slot $idx error: [${error.errorCodeName}]", error)
+                val seqCounter = playerSequences[player] ?: return
+                handleSlotFailure(idx, player, seqCounter.get(), seqCounter, error.errorCode, message)
             }
         })
 
@@ -404,6 +495,9 @@ object MultiStreamManager {
     }
 
     private fun releaseSlot(slotIndex: Int) {
+        cancelSlotFallback(slotIndex)
+        slotSourceIndices[slotIndex] = 0
+        slotDrmRetries[slotIndex] = 0
         updateSlot(slotIndex) { MultiSlotState(slotIndex) }
         runOnMain {
             players[slotIndex]?.let { oldPlayer ->

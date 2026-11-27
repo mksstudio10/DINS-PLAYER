@@ -3,6 +3,7 @@ package com.dinsplayer.app.core.network
 import android.util.Log
 import com.dinsplayer.app.data.models.Channel
 import com.dinsplayer.app.data.models.Playlist
+import com.dinsplayer.app.data.models.StreamSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -157,7 +158,7 @@ object M3uParser {
         return@withContext channels
     }
 
-    private suspend fun parseM3uString(
+    internal suspend fun parseM3uString(
         playlistId: Long,
         m3u: String,
         fallbackUa: String? = null,
@@ -178,9 +179,11 @@ object M3uParser {
         var drmLicenseUri: String? = null
         var drmScheme: String? = null
         var manifestType: String? = null
+        var fromExtInf = false
+        var pendingSources = mutableListOf<StreamSource>()
         var nextChannelId = 9000L
 
-        // Pending state from tags that appear BEFORE EXTINF (e.g. KODIPROP, EXTVLCOPT)
+        // Pending state from tags that appear BEFORE EXTINF (Style B) or between backup URLs
         var pendingUserAgent: String? = null
         var pendingReferer: String? = null
         var pendingOrigin: String? = null
@@ -189,13 +192,32 @@ object M3uParser {
         var pendingManifestType: String? = null
         var pendingDrmKey: String? = null
 
-        // Split pipe-suffix headers from URL (e.g. "url|Referer=...|User-Agent=...")
+        // Split pipe-suffix headers from URL (supports both "|Key=Val|Key2=Val2" and "|Key=Val&Key2=Val2")
         fun splitPipeSuffix(rawUrl: String): Pair<String, List<String>> {
-            if (!rawUrl.contains('|')) return rawUrl to emptyList()
-            val parts = rawUrl.split('|')
-            val url = parts.first()
-            val headers = if (parts.size > 1) parts.drop(1).filter { it.contains('=') } else emptyList()
+            val firstPipe = rawUrl.indexOf('|')
+            if (firstPipe < 0) return rawUrl to emptyList()
+            val url = rawUrl.substring(0, firstPipe)
+            val suffix = rawUrl.substring(firstPipe + 1)
+            val headers = suffix
+                .split(
+                    Regex(
+                        """\||&(?=(?:referer|referrer|origin|user-agent|useragent|http-user-agent)\s*=)""",
+                        RegexOption.IGNORE_CASE
+                    )
+                )
+                .map { it.trim() }
+                .filter { it.contains('=') }
             return url to headers
+        }
+
+        fun clearPendingState() {
+            pendingUserAgent = null
+            pendingReferer = null
+            pendingOrigin = null
+            pendingDrmScheme = null
+            pendingDrmLicenseUri = null
+            pendingManifestType = null
+            pendingDrmKey = null
         }
 
         fun applyPendingState() {
@@ -206,26 +228,20 @@ object M3uParser {
             if (pendingDrmLicenseUri != null) drmLicenseUri = pendingDrmLicenseUri
             if (pendingManifestType != null) manifestType = pendingManifestType
             if (pendingDrmKey != null) currentDrmKey = pendingDrmKey
-            // Clear pending after applying
-            pendingUserAgent = null
-            pendingReferer = null
-            pendingOrigin = null
-            pendingDrmScheme = null
-            pendingDrmLicenseUri = null
-            pendingManifestType = null
-            pendingDrmKey = null
+            clearPendingState()
         }
 
         val parseAndApplyLicenseKey: (String) -> Unit = { rawKey ->
             val key = rawKey.trim()
+            val writeToCurrent = currentName != null && pendingSources.isEmpty()
             if (key.startsWith("http", ignoreCase = true)) {
-                if (currentName != null) {
+                if (writeToCurrent) {
                     drmLicenseUri = key
                 } else {
                     pendingDrmLicenseUri = key
                 }
             } else if (key.contains(":")) {
-                if (currentName != null) {
+                if (writeToCurrent) {
                     currentDrmKey = key
                     if (drmScheme.isNullOrBlank()) drmScheme = "clearkey"
                 } else {
@@ -235,9 +251,9 @@ object M3uParser {
                 try {
                     // Support multiple "kid:key" pairs separated by comma
                     val pairs = key.split(",").map { it.trim() }.filter { it.contains(":") }
-                    val zeroKid64 = android.util.Base64.encodeToString(
-                        hexStringToByteArray("00000000000000000000000000000000"),
-                        android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                    val b64UrlEncoder = java.util.Base64.getUrlEncoder().withoutPadding()
+                    val zeroKid64 = b64UrlEncoder.encodeToString(
+                        hexStringToByteArray("00000000000000000000000000000000")
                     )
                     val keysJsonList = mutableListOf<String>()
                     for (pair in pairs) {
@@ -246,8 +262,8 @@ object M3uParser {
                         val kidBytes = hexStringToByteArray(kid)
                         val kBytes = hexStringToByteArray(k)
                         if (kidBytes.isNotEmpty() && kBytes.isNotEmpty()) {
-                            val kid64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                            val k64 = android.util.Base64.encodeToString(kBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                            val kid64 = b64UrlEncoder.encodeToString(kidBytes)
+                            val k64 = b64UrlEncoder.encodeToString(kBytes)
                             keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$kid64"}""")
                             if (!kid.equals("00000000000000000000000000000000", ignoreCase = true)) {
                                 keysJsonList.add("""{"kty":"oct","k":"$k64","kid":"$zeroKid64"}""")
@@ -257,7 +273,7 @@ object M3uParser {
                     if (keysJsonList.isNotEmpty()) {
                         val json = """{"keys":[${keysJsonList.joinToString(",")}],"type":"temporary"}"""
                         val licenseUri = "data:application/json,${java.net.URLEncoder.encode(json, "UTF-8")}"
-                        if (currentName != null) {
+                        if (writeToCurrent) {
                             drmLicenseUri = licenseUri
                         } else {
                             pendingDrmLicenseUri = licenseUri
@@ -267,40 +283,6 @@ object M3uParser {
                     Log.e(TAG, "Gagal parse ClearKey: $key", e)
                 }
             }
-        }
-
-        fun flushChannel(url: String) {
-            if (currentName == null || url.isBlank()) return
-            channels.add(
-                Channel(
-                    id = nextChannelId++,
-                    playlistId = playlistId,
-                    name = currentName!!,
-                    url = url,
-                    logoUrl = currentLogo ?: "",
-                    groupTitle = currentCategory ?: "Umum",
-                    tvgId = currentTvgId ?: "",
-                    drmKey = currentDrmKey ?: "",
-                    drmScheme = drmScheme ?: "",
-                    userAgent = userAgent ?: "",
-                    referer = referer ?: "",
-                    origin = origin ?: "",
-                    drmLicenseUri = drmLicenseUri,
-                    manifestType = manifestType ?: ""
-                )
-            )
-            // Reset all state for the next channel
-            currentName = null
-            currentLogo = null
-            currentCategory = null
-            currentTvgId = null
-            currentDrmKey = null
-            userAgent = fallbackUa
-            referer = null
-            origin = null
-            drmScheme = null
-            drmLicenseUri = null
-            manifestType = null
         }
 
         fun resetChannelState() {
@@ -315,6 +297,36 @@ object M3uParser {
             drmScheme = null
             drmLicenseUri = null
             manifestType = null
+            fromExtInf = false
+            pendingSources = mutableListOf()
+        }
+
+        fun flushChannel() {
+            if (currentName == null || pendingSources.isEmpty()) {
+                resetChannelState()
+                return
+            }
+            val first = pendingSources.first()
+            channels.add(
+                Channel(
+                    id = nextChannelId++,
+                    playlistId = playlistId,
+                    name = currentName!!,
+                    url = first.url,
+                    logoUrl = currentLogo ?: "",
+                    groupTitle = currentCategory ?: "Umum",
+                    tvgId = currentTvgId ?: "",
+                    drmKey = first.drmKey,
+                    drmScheme = first.drmScheme,
+                    userAgent = first.userAgent,
+                    referer = first.referer,
+                    origin = first.origin,
+                    drmLicenseUri = first.drmLicenseUri,
+                    manifestType = first.manifestType,
+                    streamSources = pendingSources.toList(),
+                )
+            )
+            resetChannelState()
         }
 
         var lineCount = 0
@@ -340,13 +352,11 @@ object M3uParser {
 
             when {
                 trimmed.startsWith("#EXTINF:") -> {
-                    // New channel starts — flush any previous channel that had no URL (edge case)
-                    if (currentName != null) {
-                        // Previous EXTINF without URL — treat as invalid, reset
-                        resetChannelState()
-                    }
+                    // Flush previous entry (along with any consecutive backup URLs) before starting new one
+                    flushChannel()
                     // Apply any pending state from tags before this EXTINF
                     applyPendingState()
+                    fromExtInf = true
 
                     // Cari koma pertama di luar tanda kutip (setelah atribut #EXTINF)
                     // Format: #EXTINF:-1 attr1="v1" attr2="v2",Channel Name
@@ -382,7 +392,8 @@ object M3uParser {
                 }
                 trimmed.startsWith("#KODIPROP:inputstream.adaptive.manifest_type=", ignoreCase = true) -> {
                     val value = trimmed.substringAfter("=").trim().lowercase()
-                    if (currentName != null) {
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
+                    if (writeToCurrent) {
                         manifestType = value
                     } else {
                         pendingManifestType = value
@@ -396,7 +407,8 @@ object M3uParser {
                         scheme.contains("clearkey") -> "clearkey"
                         else -> scheme
                     }
-                    if (currentName != null) {
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
+                    if (writeToCurrent) {
                         drmScheme = parsedScheme
                     } else {
                         pendingDrmScheme = parsedScheme
@@ -410,6 +422,7 @@ object M3uParser {
                     val kvp = trimmed.substringAfter(":").trim()
                     val keyName = kvp.substringBefore("=").trim().lowercase()
                     val value = kvp.substringAfter("=").trim()
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
                     when (keyName) {
                         "drm_type", "license_type" -> {
                             val parsedScheme = when {
@@ -418,19 +431,20 @@ object M3uParser {
                                 value.contains("clearkey", ignoreCase = true) -> "clearkey"
                                 else -> value.lowercase()
                             }
-                            if (currentName != null) drmScheme = parsedScheme else pendingDrmScheme = parsedScheme
+                            if (writeToCurrent) drmScheme = parsedScheme else pendingDrmScheme = parsedScheme
                         }
                         "clearkey", "license_key" -> {
                             parseAndApplyLicenseKey(value)
                         }
                         "manifest_type" -> {
                             val mt = value.lowercase()
-                            if (currentName != null) manifestType = mt else pendingManifestType = mt
+                            if (writeToCurrent) manifestType = mt else pendingManifestType = mt
                         }
                     }
                 }
                 trimmed.startsWith("#KODIPROP:inputstream.adaptive.stream_headers=", ignoreCase = true) -> {
                     val rawHeaders = trimmed.substringAfter("=").trim()
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
                     // Format: Referer=https://...&Origin=https://...&User-Agent=...
                     val pairs = rawHeaders.split("&")
                     for (pair in pairs) {
@@ -439,28 +453,29 @@ object M3uParser {
                             val rawV = pair.substringAfter("=").trim()
                             val v = try { java.net.URLDecoder.decode(rawV, "UTF-8") } catch (e: Exception) { rawV }
                             when (k) {
-                                "referer", "referrer" -> if (currentName != null) referer = v else pendingReferer = v
-                                "origin" -> if (currentName != null) origin = v else pendingOrigin = v
-                                "user-agent", "useragent", "http-user-agent" -> if (currentName != null) userAgent = v else pendingUserAgent = v
+                                "referer", "referrer" -> if (writeToCurrent) referer = v else pendingReferer = v
+                                "origin" -> if (writeToCurrent) origin = v else pendingOrigin = v
+                                "user-agent", "useragent", "http-user-agent" -> if (writeToCurrent) userAgent = v else pendingUserAgent = v
                             }
                         }
                     }
                 }
                 trimmed.startsWith("#EXTHTTP:", ignoreCase = true) -> {
                     val jsonStr = trimmed.substringAfter(":").trim()
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
                     try {
                         val json = org.json.JSONObject(jsonStr)
                         val ref = json.optString("Referer").ifBlank { json.optString("referer") }
                         val org = json.optString("Origin").ifBlank { json.optString("origin") }
                         val ua = json.optString("User-Agent").ifBlank { json.optString("user-agent") }
                         if (ref.isNotBlank()) {
-                            if (currentName != null) referer = ref else pendingReferer = ref
+                            if (writeToCurrent) referer = ref else pendingReferer = ref
                         }
                         if (org.isNotBlank()) {
-                            if (currentName != null) origin = org else pendingOrigin = org
+                            if (writeToCurrent) origin = org else pendingOrigin = org
                         }
                         if (ua.isNotBlank()) {
-                            if (currentName != null) userAgent = ua else pendingUserAgent = ua
+                            if (writeToCurrent) userAgent = ua else pendingUserAgent = ua
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Gagal parse EXTHTTP json: $jsonStr", e)
@@ -468,46 +483,88 @@ object M3uParser {
                 }
                 trimmed.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
                     val value = trimmed.substringAfter(":").trim()
+                    val writeToCurrent = currentName != null && pendingSources.isEmpty()
                     when {
                         value.startsWith("http-user-agent=", ignoreCase = true) -> {
                             val ua = value.substringAfter("=").trim().trim('"')
-                            if (currentName != null) userAgent = ua else pendingUserAgent = ua
+                            if (writeToCurrent) userAgent = ua else pendingUserAgent = ua
                         }
                         value.startsWith("http-referrer=", ignoreCase = true) ||
                         value.startsWith("http-referer=", ignoreCase = true) -> {
                             val ref = value.substringAfter("=").trim().trim('"')
-                            if (currentName != null) referer = ref else pendingReferer = ref
+                            if (writeToCurrent) referer = ref else pendingReferer = ref
                         }
                         value.startsWith("http-origin=", ignoreCase = true) -> {
                             val org = value.substringAfter("=").trim().trim('"')
-                            if (currentName != null) origin = org else pendingOrigin = org
+                            if (writeToCurrent) origin = org else pendingOrigin = org
                         }
                     }
                 }
                 !trimmed.startsWith("#") -> {
                     // Parse pipe-suffix headers (e.g. "url|Referer=...|User-Agent=...|Origin=...")
+                    // Kept local to this URL so URL 1's pipe headers never leak onto backup URL 2.
                     val (cleanUrl, pipeHeaders) = splitPipeSuffix(trimmed)
+                    var pipeUa: String? = null
+                    var pipeReferer: String? = null
+                    var pipeOrigin: String? = null
                     for (header in pipeHeaders) {
                         val hName = header.substringBefore("=").trim()
                         val hValue = header.substringAfter("=").trim()
                         when (hName.lowercase()) {
-                            "referer", "referrer" -> referer = hValue
-                            "origin" -> origin = hValue
-                            "user-agent", "useragent", "http-user-agent" -> userAgent = hValue
+                            "referer", "referrer" -> pipeReferer = hValue
+                            "origin" -> pipeOrigin = hValue
+                            "user-agent", "useragent", "http-user-agent" -> pipeUa = hValue
                         }
                     }
                     if (currentName == null) {
-                        // Plain URL tanpa EXTINF — terapkan pending state lebih dulu
+                        // Plain URL tanpa EXTINF — terapkan pending state lalu flush langsung
                         applyPendingState()
+                        fromExtInf = false
                         currentName = "Channel ${nextChannelId - 8999}"
+                        val trimmedUrl = cleanUrl.trim()
+                        if (trimmedUrl.isNotBlank()) {
+                            pendingSources.add(
+                                StreamSource(
+                                    url = trimmedUrl,
+                                    serverName = "Server 1",
+                                    userAgent = pipeUa ?: userAgent ?: "",
+                                    referer = pipeReferer ?: referer ?: "",
+                                    origin = pipeOrigin ?: origin ?: "",
+                                    drmKey = currentDrmKey ?: "",
+                                    drmScheme = drmScheme ?: "",
+                                    drmLicenseUri = drmLicenseUri,
+                                    manifestType = manifestType ?: "",
+                                )
+                            )
+                        }
+                        flushChannel()
+                    } else {
+                        val trimmedUrl = cleanUrl.trim()
+                        if (trimmedUrl.isNotBlank() && pendingSources.none { it.url == trimmedUrl }) {
+                            val source = StreamSource(
+                                url = trimmedUrl,
+                                serverName = "Server ${pendingSources.size + 1}",
+                                userAgent = pipeUa ?: pendingUserAgent ?: userAgent ?: "",
+                                referer = pipeReferer ?: pendingReferer ?: referer ?: "",
+                                origin = pipeOrigin ?: pendingOrigin ?: origin ?: "",
+                                drmKey = pendingDrmKey ?: currentDrmKey ?: "",
+                                drmScheme = pendingDrmScheme ?: drmScheme ?: "",
+                                drmLicenseUri = pendingDrmLicenseUri ?: drmLicenseUri,
+                                manifestType = pendingManifestType ?: manifestType ?: "",
+                            )
+                            pendingSources.add(source)
+                        }
+                        clearPendingState()
+                        if (!fromExtInf) {
+                            flushChannel()
+                        }
                     }
-                    flushChannel(cleanUrl)
                 }
             }
             line = reader.readLine()
         }
-        // Flush final channel if file ends with URL but no trailing blank line
-        flushChannel("")
+        // Flush final channel along with any accumulated backup URLs
+        flushChannel()
         return channels
     }
 

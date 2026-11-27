@@ -498,19 +498,10 @@ fun LiveTvScreen(initialPlaylistId: Long? = null) {
                     keyboardController?.hide()
                     focusManager.clearFocus()
                     syncLiveChannelsToPlayer()
-                    val liveHeaders = buildMap<String, String> {
-                        if (channel.referer.isNotBlank()) put("Referer", channel.referer)
-                        if (channel.origin.isNotBlank()) put("Origin", channel.origin)
-                    }
                     Media3Manager.setActiveChannelId(channel.id.toString())
-                    Media3Manager.play(
-                        url = channel.url,
+                    Media3Manager.playSources(
+                        sources = channel.resolvedSources(),
                         title = channel.name,
-                        userAgent = channel.userAgent,
-                        headers = liveHeaders,
-                        drmScheme = channel.drmScheme.takeIf { it.isNotBlank() },
-                        drmLicenseUri = channel.drmLicenseUri,
-                        manifestType = channel.manifestType
                     )
                     Media3Manager.launchPlayer(context)
                 }
@@ -608,6 +599,7 @@ private fun List<Channel>.toChannelItems(): List<ChannelItem> = map { ch ->
         drmLicenseUri = ch.drmLicenseUri?.takeIf { it.isNotBlank() },
         manifestType = ch.manifestType,
         tvgId = ch.tvgId,
+        streamSources = ch.resolvedSources(),
     )
 }
 

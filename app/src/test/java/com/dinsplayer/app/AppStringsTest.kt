@@ -57,6 +57,8 @@ class AppStringsTest {
             assertTrue(s.reorderPlaylist.isNotBlank())
             assertTrue(s.reorderHintTv.isNotBlank())
             assertTrue(s.moreOptions.isNotBlank())
+            assertTrue(s.selectServer.isNotBlank())
+            assertTrue(s.allServersFailed.isNotBlank())
             assertEquals(AppLanguage.entries.size, s.languageNames.size)
             AppLanguage.entries.forEach { target ->
                 assertTrue(s.languageNames[target]?.isNotBlank() == true)
@@ -70,6 +72,8 @@ class AppStringsTest {
             assertTrue(s.fmtEpgSummaryActiveOnly(2, 2).contains("2"))
             assertTrue(s.fmtEpgActiveHttp(200).contains("200"))
             assertTrue(s.fmtEpgActivePrograms(15).contains("15"))
+            assertTrue(s.fmtSwitchingBackupServer(1, 2).let { it.contains("1") && it.contains("2") })
+            assertTrue(s.fmtRetryingStream(1, 2).let { it.contains("1") && it.contains("2") })
         }
     }
 

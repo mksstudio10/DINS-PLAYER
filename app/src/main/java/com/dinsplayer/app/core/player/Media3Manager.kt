@@ -1,11 +1,14 @@
 package com.dinsplayer.app.core.player
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import com.dinsplayer.app.data.models.PlayerState
+import com.dinsplayer.app.data.models.StreamSource
 import com.dinsplayer.app.features.player.ChannelItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +41,15 @@ object Media3Manager {
     private val _streamFormat = MutableStateFlow("")
     val streamFormat: StateFlow<String> = _streamFormat
 
+    private val _streamSources = MutableStateFlow<List<StreamSource>>(emptyList())
+    val streamSources: StateFlow<List<StreamSource>> = _streamSources
+
+    private val _currentSourceIndex = MutableStateFlow(0)
+    val currentSourceIndex: StateFlow<Int> = _currentSourceIndex
+
+    private val _fallbackStatus = MutableStateFlow("")
+    val fallbackStatus: StateFlow<String> = _fallbackStatus
+
     /**
      * [currentChannelId] is optional on purpose: callers that only refresh the list
      * (e.g. LiveTvScreen after re-parsing the playlist) must not clear the channel
@@ -51,8 +63,11 @@ object Media3Manager {
         }
         if (channels.any { it.id == _activeChannelId.value }) return
         // M3uParser assigns fresh ids on every parse, so id matching alone loses the
-        // playing channel on refresh. Fall back to the URL that is actually playing.
-        _activeChannelId.value = channels.firstOrNull { it.url == _currentUrl.value }?.id ?: ""
+        // playing channel on refresh. Fall back to any URL belonging to the channel.
+        val playingUrl = _currentUrl.value
+        _activeChannelId.value = channels.firstOrNull { ch ->
+            ch.url == playingUrl || ch.streamSources.any { it.url == playingUrl }
+        }?.id ?: ""
     }
 
     fun setActiveChannelId(channelId: String) {
@@ -64,12 +79,27 @@ object Media3Manager {
     private var baseRetryPolicy: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy? = null
     private var appContext: android.content.Context? = null
 
+    private val mainHandler: Handler by lazy(LazyThreadSafetyMode.NONE) {
+        Handler(Looper.getMainLooper())
+    }
+    private var pendingFallbackRunnable: Runnable? = null
+    private var bufferingTimeoutRunnable: Runnable? = null
+    private var currentBaseHeaders: Map<String, String> = emptyMap()
+    private var drmRetryCount: Int = 0
+
     private val playExecutor: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newFixedThreadPool(3) { r ->
         Thread(r, "Media3PlayWorker").apply { isDaemon = true }
     }
 
     /** Inserted into the audio pipeline by [AudioThroughFfmpegRenderersFactory]. */
     private val audioOffsetProcessor = AudioOffsetProcessor()
+
+    private fun cancelPendingTimers() {
+        pendingFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingFallbackRunnable = null
+        bufferingTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        bufferingTimeoutRunnable = null
+    }
 
     fun init(context: Context) {
         if (player != null) return
@@ -108,8 +138,16 @@ object Media3Manager {
 
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_IDLE && player?.playerError != null) {
+                        if (playbackState == Player.STATE_IDLE &&
+                            (player?.playerError != null || pendingFallbackRunnable != null)
+                        ) {
                             return
+                        }
+
+                        if (playbackState == Player.STATE_READY) {
+                            cancelPendingTimers()
+                            drmRetryCount = 0
+                            _fallbackStatus.value = ""
                         }
 
                         _state.value = when (playbackState) {
@@ -151,24 +189,14 @@ object Media3Manager {
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        val p = player
-
-                        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
-                            android.util.Log.w("Media3Manager", "Live stream behind window, re-preparing...")
-                            p?.seekToDefaultPosition()
-                            p?.prepare()
-                            p?.play()
-                            return
-                        }
-
                         val cause = error.cause?.message ?: ""
                         val httpEx = error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
                         val httpCode = httpEx?.responseCode ?: 0
                         val failedUrl = httpEx?.dataSpec?.uri?.toString() ?: ""
 
                         val detail = StreamPlaybackFactory.mapPlaybackError(error, activeStreamCount = 1)
-                        _state.value = PlayerState.Error(detail)
                         android.util.Log.e("Media3Manager", "ExoPlayer Error: [${error.errorCodeName}] ${error.message} cause=$cause httpCode=$httpCode failedUrl=${failedUrl.take(120)}", error)
+                        handleSourceFailure(error.errorCode, detail, playSequence.get())
                     }
                 })
             }
@@ -185,15 +213,95 @@ object Media3Manager {
         drmLicenseUri: String? = null,
         manifestType: String? = null
     ) {
-        val p = player ?: return
-        val currentSeq = playSequence.incrementAndGet()
-        _state.value = PlayerState.Loading
-        _currentTitle.value = title
-        _currentUrl.value = url
-        _currentDrmScheme.value = drmScheme
-        _currentDrmLicenseUri.value = drmLicenseUri
+        val singleSource = StreamSource(
+            url = url,
+            serverName = "Server 1",
+            userAgent = userAgent,
+            drmScheme = drmScheme.orEmpty(),
+            drmLicenseUri = drmLicenseUri,
+            manifestType = manifestType.orEmpty(),
+        )
+        playSources(
+            sources = listOf(singleSource),
+            title = title,
+            startIndex = 0,
+            extraHeaders = headers,
+        )
+    }
 
-        android.util.Log.i("Media3Manager", "play() called (#$currentSeq): url=$url drmScheme=$drmScheme drmLicenseUri=${drmLicenseUri?.take(60)} manifestType=$manifestType")
+    fun playSources(
+        sources: List<StreamSource>,
+        title: String = "",
+        startIndex: Int = 0,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ) {
+        if (sources.isEmpty() || player == null) return
+        val currentSeq = playSequence.incrementAndGet()
+        cancelPendingTimers()
+        _streamSources.value = sources
+        _currentTitle.value = title
+        currentBaseHeaders = extraHeaders
+        drmRetryCount = 0
+        _fallbackStatus.value = ""
+        startSource(startIndex.coerceIn(0, sources.lastIndex), currentSeq)
+    }
+
+    fun switchSource(index: Int) {
+        val sources = _streamSources.value
+        if (player == null || index !in sources.indices) return
+        val currentSeq = playSequence.incrementAndGet()
+        cancelPendingTimers()
+        drmRetryCount = 0
+        _fallbackStatus.value = ""
+        startSource(index, currentSeq)
+    }
+
+    fun retryCurrentChannel() {
+        val sources = _streamSources.value
+        if (sources.isNotEmpty()) {
+            playSources(sources = sources, title = _currentTitle.value, startIndex = 0, extraHeaders = currentBaseHeaders)
+        } else {
+            val url = _currentUrl.value
+            if (url.isNotBlank()) {
+                play(
+                    url = url,
+                    title = _currentTitle.value,
+                    headers = currentBaseHeaders,
+                    drmScheme = _currentDrmScheme.value,
+                    drmLicenseUri = _currentDrmLicenseUri.value,
+                )
+            }
+        }
+    }
+
+    private fun startSource(index: Int, seq: Long) {
+        val p = player ?: return
+        val sources = _streamSources.value
+        val source = sources.getOrNull(index) ?: return
+
+        _currentSourceIndex.value = index
+        _state.value = PlayerState.Loading
+        _currentUrl.value = source.url
+        _currentDrmScheme.value = source.drmScheme.takeIf { it.isNotBlank() }
+        _currentDrmLicenseUri.value = source.drmLicenseUri
+
+        scheduleBufferingTimeout(seq)
+
+        val mergedHeaders = buildMap<String, String> {
+            putAll(currentBaseHeaders)
+            if (source.referer.isNotBlank() && keys.none { it.equals("Referer", ignoreCase = true) }) {
+                put("Referer", source.referer)
+            }
+            if (source.origin.isNotBlank() && keys.none { it.equals("Origin", ignoreCase = true) }) {
+                put("Origin", source.origin)
+            }
+        }
+
+        android.util.Log.i(
+            "Media3Manager",
+            "startSource() (#$seq, ${index + 1}/${sources.size} ${source.serverName}): " +
+                "url=${source.url} drmScheme=${source.drmScheme} manifestType=${source.manifestType}"
+        )
 
         playExecutor.execute {
             try {
@@ -207,30 +315,105 @@ object Media3Manager {
                     okClient = okClient,
                     drmProvider = drmProv,
                     retryPolicy = retryPol,
-                    url = url,
-                    userAgent = userAgent,
-                    headers = headers,
-                    drmScheme = drmScheme,
-                    drmLicenseUri = drmLicenseUri,
-                    manifestType = manifestType,
+                    url = source.url,
+                    userAgent = source.userAgent,
+                    headers = mergedHeaders,
+                    drmScheme = source.drmScheme.takeIf { it.isNotBlank() },
+                    drmLicenseUri = source.drmLicenseUri,
+                    manifestType = source.manifestType.takeIf { it.isNotBlank() },
                 )
 
-                if (currentSeq != playSequence.get()) return@execute
+                if (seq != playSequence.get()) return@execute
 
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    if (currentSeq != playSequence.get()) return@post
+                mainHandler.post {
+                    if (seq != playSequence.get()) return@post
                     _streamFormat.value = built.streamFormat
                     p.setMediaSource(built.mediaSource)
                     p.prepare()
                     p.playWhenReady = true
                 }
             } catch (e: Exception) {
-                if (currentSeq != playSequence.get()) return@execute
-                android.util.Log.e("Media3Manager", "Worker failed during play() setup (#$currentSeq)!", e)
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    if (currentSeq != playSequence.get()) return@post
-                    _state.value = PlayerState.Error("Gagal mempersiapkan channel: ${e.message}")
+                if (seq != playSequence.get()) return@execute
+                android.util.Log.e("Media3Manager", "Worker failed during startSource() (#$seq)!", e)
+                mainHandler.post {
+                    if (seq != playSequence.get()) return@post
+                    handleSourceFailure(0, "Gagal mempersiapkan channel: ${e.message}", seq)
                 }
+            }
+        }
+    }
+
+    private fun scheduleBufferingTimeout(seq: Long) {
+        bufferingTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        if (_currentSourceIndex.value + 1 >= _streamSources.value.size) {
+            bufferingTimeoutRunnable = null
+            return
+        }
+        val runnable = Runnable {
+            if (seq != playSequence.get()) return@Runnable
+            if (_state.value is PlayerState.Loading) {
+                android.util.Log.w(
+                    "Media3Manager",
+                    "Buffering timeout on source #${_currentSourceIndex.value + 1} — switching to backup"
+                )
+                handleSourceFailure(
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                    "Timeout",
+                    seq,
+                )
+            }
+        }
+        bufferingTimeoutRunnable = runnable
+        mainHandler.postDelayed(runnable, 25_000L)
+    }
+
+    private fun handleSourceFailure(errorCode: Int, detail: String, seq: Long) {
+        if (seq != playSequence.get()) return
+        cancelPendingTimers()
+        val p = player ?: return
+        val sources = _streamSources.value
+        val curIdx = _currentSourceIndex.value
+        val strings = com.dinsplayer.app.core.i18n.S
+
+        when (StreamFallbackPolicy.decide(errorCode, curIdx, sources.size, drmRetryCount)) {
+            FallbackAction.REPREPARE_LIVE_WINDOW -> {
+                android.util.Log.w("Media3Manager", "Live stream behind window, re-preparing...")
+                p.seekToDefaultPosition()
+                p.prepare()
+                p.play()
+            }
+            FallbackAction.RETRY_SAME_SOURCE -> {
+                drmRetryCount++
+                _state.value = PlayerState.Loading
+                _fallbackStatus.value = strings.fmtRetryingStream(
+                    drmRetryCount,
+                    StreamFallbackPolicy.MAX_TRANSIENT_DRM_RETRIES,
+                )
+                val retryRunnable = Runnable {
+                    if (seq != playSequence.get()) return@Runnable
+                    startSource(curIdx, seq)
+                }
+                pendingFallbackRunnable = retryRunnable
+                mainHandler.postDelayed(retryRunnable, 1500L)
+            }
+            FallbackAction.SWITCH_NEXT_SOURCE -> {
+                drmRetryCount = 0
+                val nextIdx = curIdx + 1
+                _state.value = PlayerState.Loading
+                _fallbackStatus.value = strings.fmtSwitchingBackupServer(curIdx + 1, nextIdx + 1)
+                p.stop()
+                val switchRunnable = Runnable {
+                    if (seq != playSequence.get()) return@Runnable
+                    startSource(nextIdx, seq)
+                }
+                pendingFallbackRunnable = switchRunnable
+                mainHandler.postDelayed(switchRunnable, 1200L)
+            }
+            FallbackAction.FAIL_ALL -> {
+                _fallbackStatus.value = ""
+                _state.value = PlayerState.Error(
+                    if (sources.size > 1) "${strings.allServersFailed}\n($detail)" else detail
+                )
             }
         }
     }
@@ -239,6 +422,8 @@ object Media3Manager {
     fun resume() { player?.play() }
 
     fun stop() {
+        playSequence.incrementAndGet()
+        cancelPendingTimers()
         player?.let {
             it.stop()
             // seekTo(0) on a live stream lands outside the moving live window and
@@ -249,6 +434,9 @@ object Media3Manager {
         // that may already be deleted from disk. Clear them so Idle really means idle.
         _currentUrl.value = ""
         _currentTitle.value = ""
+        _streamSources.value = emptyList()
+        _currentSourceIndex.value = 0
+        _fallbackStatus.value = ""
         _state.value = PlayerState.Idle
     }
 
@@ -268,12 +456,17 @@ object Media3Manager {
     }
 
     fun release() {
+        playSequence.incrementAndGet()
+        cancelPendingTimers()
         player?.release()
         player = null
         baseOkHttpClient = null
         baseDrmProvider = null
         baseRetryPolicy = null
         appContext = null
+        _streamSources.value = emptyList()
+        _currentSourceIndex.value = 0
+        _fallbackStatus.value = ""
         _state.value = PlayerState.Idle
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -111,6 +112,7 @@ internal fun DpadTextInputGuard(
         interactionSource.interactions.collect { interaction ->
             if (interaction is PressInteraction.Press) {
                 setEditing(true)
+                keyboardController?.show()
             }
         }
     }
@@ -119,8 +121,6 @@ internal fun DpadTextInputGuard(
         if (isEditing) {
             delay(40L)
             keyboardController?.show()
-        } else {
-            keyboardController?.hide()
         }
     }
 
@@ -134,7 +134,6 @@ internal fun DpadTextInputGuard(
             val nowFocused = state.isFocused || state.hasFocus
             if (isFocused && !nowFocused && isEditing) {
                 setEditing(false)
-                keyboardController?.hide()
             }
             isFocused = nowFocused
         }
@@ -176,15 +175,17 @@ internal fun DpadTextInputGuard(
             }
         }
 
-    InterceptPlatformTextInput(
-        interceptor = { request, nextHandler ->
-            if (isEditing) {
+    val editing = isEditing
+    val interceptor = remember(editing) {
+        PlatformTextInputInterceptor { request, nextHandler ->
+            if (editing) {
                 nextHandler.startInputMethod(request)
             } else {
                 awaitCancellation()
             }
         }
-    ) {
+    }
+    InterceptPlatformTextInput(interceptor = interceptor) {
         content(
             isEditing,
             !isEditing,

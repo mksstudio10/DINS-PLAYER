@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.dinsplayer.app.core.player.isVodUrl
+import com.dinsplayer.app.data.models.StreamSource
 import com.dinsplayer.app.ui.theme.BgBase
 import com.dinsplayer.app.ui.theme.BgDialog
 import com.dinsplayer.app.ui.theme.BgElevated
@@ -105,8 +106,24 @@ data class ChannelItem(
     val drmScheme: String? = null,
     val drmLicenseUri: String? = null,
     val manifestType: String = "",
-    val tvgId: String = ""
-)
+    val tvgId: String = "",
+    val streamSources: List<StreamSource> = emptyList(),
+) {
+    fun resolvedSources(): List<StreamSource> =
+        if (streamSources.isNotEmpty()) streamSources
+        else listOf(
+            StreamSource(
+                url = url,
+                serverName = "Server 1",
+                userAgent = userAgent,
+                referer = referer,
+                origin = origin,
+                drmScheme = drmScheme.orEmpty(),
+                drmLicenseUri = drmLicenseUri,
+                manifestType = manifestType,
+            )
+        )
+}
 
 /**
  * Overlay channel-list panel shown inside the player.

@@ -27,6 +27,19 @@ data class Playlist(
     val sortOrder: Int = 0,
 )
 
+// ── Stream source (primary + backup URLs) ──────────────────────────────────
+data class StreamSource(
+    val url: String,
+    val serverName: String = "Server 1",
+    val userAgent: String = "",
+    val referer: String = "",
+    val origin: String = "",
+    val drmKey: String = "",
+    val drmScheme: String = "",
+    val drmLicenseUri: String? = null,
+    val manifestType: String = "",
+)
+
 // ── Channel (IPTV live) ────────────────────────────────────────────────────
 data class Channel(
     val id: Long = 0,
@@ -43,7 +56,24 @@ data class Channel(
     val origin: String = "",        // from #EXTVLCOPT:http-origin
     val drmLicenseUri: String? = null,
     val manifestType: String = "", // dash | hls | "" (auto-detect)
-)
+    val streamSources: List<StreamSource> = emptyList(),
+) {
+    fun resolvedSources(): List<StreamSource> =
+        if (streamSources.isNotEmpty()) streamSources
+        else listOf(
+            StreamSource(
+                url = url,
+                serverName = "Server 1",
+                userAgent = userAgent,
+                referer = referer,
+                origin = origin,
+                drmKey = drmKey,
+                drmScheme = drmScheme,
+                drmLicenseUri = drmLicenseUri,
+                manifestType = manifestType,
+            )
+        )
+}
 
 // ── VOD / Local video ─────────────────────────────────────────────────────
 data class VideoFile(

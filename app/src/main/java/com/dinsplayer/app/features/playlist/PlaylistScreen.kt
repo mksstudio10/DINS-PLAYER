@@ -73,7 +73,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun PlaylistScreen(
-    importUri: android.net.Uri? = null,
+    importRequest: PlaylistImportRequest? = null,
     onImportConsumed: () -> Unit = {},
     onPlaylistSelected: (Long) -> Unit = {},
 ) {
@@ -86,13 +86,13 @@ fun PlaylistScreen(
     var showWebServerDialog by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var playlistToEdit by remember { mutableStateOf<Playlist?>(null) }
-    // Copied out of the shared holder so the form keeps its file after the holder is cleared.
-    var dialogImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    // Copied out of the Activity state so the form keeps its file after the request is cleared.
+    var dialogImportRequest by remember { mutableStateOf<PlaylistImportRequest?>(null) }
 
-    LaunchedEffect(importUri) {
-        if (importUri != null) {
+    LaunchedEffect(importRequest?.id) {
+        if (importRequest != null) {
             playlistToEdit = null
-            dialogImportUri = importUri
+            dialogImportRequest = importRequest
             showAddDialog = true
             onImportConsumed()
         }
@@ -584,14 +584,13 @@ fun PlaylistScreen(
 
     if (showAddDialog) {
         // key() forces the dialog to fully remount — and reset all its remember state —
-        // whenever the playlist being edited changes. Without this, editing playlist B
-        // after editing playlist A shows A's stale field values.
-        key(playlistToEdit?.id) {
+        // whenever the playlist being edited or incoming import request changes.
+        key(playlistToEdit?.id, dialogImportRequest?.id) {
             AddPlaylistDialog(
                 playlistToEdit = playlistToEdit,
                 existingPlaylists = playlists,
-                initialImportUri = dialogImportUri,
-                onDismiss = { showAddDialog = false; playlistToEdit = null; isSaving = false; dialogImportUri = null },
+                initialImportUri = dialogImportRequest?.uri,
+                onDismiss = { showAddDialog = false; playlistToEdit = null; isSaving = false; dialogImportRequest = null },
                 onAdd     = { newPlaylist ->
                     if (isSaving) return@AddPlaylistDialog
                     isSaving = true
@@ -613,7 +612,7 @@ fun PlaylistScreen(
                     }
                     showAddDialog = false
                     playlistToEdit = null
-                    dialogImportUri = null
+                    dialogImportRequest = null
                 }
             )
         }
@@ -1055,9 +1054,24 @@ private fun AddPlaylistDialog(
     var testMessage by remember { mutableStateOf("") }
     var duplicateError by remember { mutableStateOf("") }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val scrollState = rememberScrollState()
+    val isWideNav = rememberIsWideNav()
+    val nameFocusRequester = remember { FocusRequester() }
+    val urlFocusRequester = remember { FocusRequester() }
+    val serverUrlFocusRequester = remember { FocusRequester() }
+    val usernameFocusRequester = remember { FocusRequester() }
 
     fun importFromUri(uri: android.net.Uri?) {
+        // A link shared from another app is a remote playlist, not a file to copy.
+        if (uri != null && (uri.scheme == "http" || uri.scheme == "https")) {
+            urlOrRaw = uri.toString()
+            testResult = null
+            duplicateError = ""
+            if (name.isBlank()) name = uri.host?.removePrefix("www.").orEmpty()
+            return
+        }
         if (uri != null) {
             coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
@@ -1071,6 +1085,9 @@ private fun AddPlaylistDialog(
                             }
                         }
                     } catch (e: Exception) { /* ignore query error */ }
+                    if (displayName == null && uri.scheme == "file") {
+                        displayName = uri.lastPathSegment
+                    }
 
                     val baseName = displayName?.substringBeforeLast(".")?.ifBlank { null } ?: "local_playlist"
                     val ext = displayName?.substringAfterLast(".", "m3u") ?: "m3u"
@@ -1102,6 +1119,7 @@ private fun AddPlaylistDialog(
 
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         urlOrRaw = destFile.absolutePath
+                        duplicateError = ""
                         if (name.isBlank() && displayName != null) {
                             name = displayName!!.substringBeforeLast(".").replace("_", " ").trim()
                         }
@@ -1134,6 +1152,7 @@ private fun AddPlaylistDialog(
         clipboardManager.getText()?.text?.let {
             urlOrRaw = it
             testResult = null
+            duplicateError = ""
         }
     }
 
@@ -1393,7 +1412,7 @@ private fun AddPlaylistDialog(
             // The column must scroll or the bottom is simply cut off.
             Column(
                 modifier = Modifier
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -1429,7 +1448,7 @@ private fun AddPlaylistDialog(
                                     else if (selectedType == index) modeColor.copy(alpha = 0.2f)
                                     else Color.Transparent
                                 )
-                                .clickable { selectedType = index }
+                                .clickable { selectedType = index; duplicateError = "" }
                                 .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1454,6 +1473,8 @@ private fun AddPlaylistDialog(
                 SlimTextField(
                     value = name, onValueChange = { name = it; duplicateError = "" },
                     placeholder = "Nama Alias",
+                    isError = duplicateError.isNotBlank() && name.isBlank(),
+                    modifier = Modifier.focusRequester(nameFocusRequester),
                     keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next)
                 )
 
@@ -1461,6 +1482,8 @@ private fun AddPlaylistDialog(
                     SlimTextField(
                         value = urlOrRaw, onValueChange = { urlOrRaw = it; testResult = null; duplicateError = "" },
                         placeholder = "URL atau Isi Raw M3U",
+                        isError = duplicateError.isNotBlank() && urlOrRaw.isBlank(),
+                        modifier = Modifier.focusRequester(urlFocusRequester),
                         minLines = 1, maxLines = 3,
                         keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() }),
@@ -1480,11 +1503,15 @@ private fun AddPlaylistDialog(
                     SlimTextField(
                         value = serverUrl, onValueChange = { serverUrl = it; testResult = null; duplicateError = "" },
                         placeholder = "URL Server Xtream (contoh: http://domain.com:8080)",
+                        isError = duplicateError.isNotBlank() && (serverUrl.isBlank() || !serverUrl.startsWith("http")),
+                        modifier = Modifier.focusRequester(serverUrlFocusRequester),
                         keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next)
                     )
                     SlimTextField(
                         value = username, onValueChange = { username = it; testResult = null; duplicateError = "" },
                         placeholder = "Username",
+                        isError = duplicateError.isNotBlank() && username.isBlank(),
+                        modifier = Modifier.focusRequester(usernameFocusRequester),
                         keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next)
                     )
                     SlimTextField(
@@ -1750,6 +1777,20 @@ private fun AddPlaylistDialog(
                                     }
                                 }
                                 duplicateError = "Lengkapi dulu data yang wajib diisi: ${missing.joinToString(", ")}."
+                                keyboardController?.hide()
+                                coroutineScope.launch { scrollState.animateScrollTo(0) }
+                                if (isWideNav) {
+                                    val firstMissingRequester = when {
+                                        name.isBlank() -> nameFocusRequester
+                                        selectedType == 0 && urlOrRaw.isBlank() -> urlFocusRequester
+                                        selectedType == 1 && (serverUrl.isBlank() || !serverUrl.startsWith("http")) -> serverUrlFocusRequester
+                                        selectedType == 1 && username.isBlank() -> usernameFocusRequester
+                                        else -> null
+                                    }
+                                    firstMissingRequester?.let { req -> runCatching { req.requestFocus() } }
+                                } else {
+                                    focusManager.clearFocus()
+                                }
                                 return@Button
                             }
                             if (name.isNotBlank() && sourceValid) {
@@ -1833,125 +1874,78 @@ fun SlimTextField(
     onTogglePassword: () -> Unit = {},
     minLines: Int = 1,
     maxLines: Int = 1,
+    isError: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
     trailingIcon: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    var isEditing by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val inputFocusRequester = remember { FocusRequester() }
-    var inputHadFocus by remember { mutableStateOf(false) }
-    val rowFocusRequester = remember { FocusRequester() }
-    var restoreRowFocus by remember { mutableStateOf(false) }
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
-    LaunchedEffect(restoreRowFocus) {
-        if (restoreRowFocus) {
-            delay(60)
-            try { rowFocusRequester.requestFocus() } catch (_: Exception) {}
-            restoreRowFocus = false
-        }
-    }
-
-    LaunchedEffect(isEditing) {
-        if (isEditing) {
-            inputHadFocus = false
-            delay(50)
-            try {
-                inputFocusRequester.requestFocus()
-                delay(100)
-                keyboardController?.show()
-                delay(150)
-                bringIntoViewRequester.bringIntoView()
-            } catch (_: Exception) {}
-        }
-    }
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .bringIntoViewRequester(bringIntoViewRequester)
-            .border(
-                width = if (isFocused || isEditing) 2.5.dp else 1.dp,
-                color = if (isFocused || isEditing) Color.White else Color.White.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(10.dp)
-            )
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isFocused || isEditing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f))
-            .then(
-                if (!isEditing) {
-                    Modifier
-                        .focusRequester(rowFocusRequester)
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
-                        .clickable { isEditing = true }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                                    isEditing = true
-                                    true
-                                } else if (event.key == Key.DirectionDown) {
-                                    focusManager.moveFocus(FocusDirection.Down)
-                                    true
-                                } else if (event.key == Key.DirectionUp) {
-                                    focusManager.moveFocus(FocusDirection.Up)
-                                    true
-                                } else false
-                            } else false
-                        }
-                } else Modifier
-            )
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalAlignment = if (maxLines > 1) Alignment.Top else Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.weight(1f)) {
+    DpadTextInputGuard { isEditing, readOnly, interactionSource, guardModifier, finishEditing ->
+        LaunchedEffect(isEditing) {
             if (isEditing) {
-                androidx.compose.foundation.text.BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
-                    singleLine = maxLines == 1,
-                    minLines = minLines,
-                    maxLines = maxLines,
-                    keyboardOptions = keyboardOptions,
-                    keyboardActions = keyboardActions,
-                    visualTransformation = if (isPassword && !showPassword) PasswordVisualTransformation() else VisualTransformation.None,
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(AccentBlue),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(inputFocusRequester)
-                        .onFocusChanged {
-                            if (it.isFocused || it.hasFocus) {
-                                inputHadFocus = true
-                            } else if (inputHadFocus) {
-                                isEditing = false
-                                keyboardController?.hide()
-                            }
-                        }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown) {
-                                if (event.key == Key.Back) {
-                                    isEditing = false
-                                    keyboardController?.hide()
-                                    restoreRowFocus = true
-                                    true
-                                } else if (event.key == Key.DirectionDown) {
-                                    isEditing = false
-                                    keyboardController?.hide()
-                                    focusManager.moveFocus(FocusDirection.Down)
-                                    true
-                                } else if (event.key == Key.DirectionUp) {
-                                    isEditing = false
-                                    keyboardController?.hide()
-                                    focusManager.moveFocus(FocusDirection.Up)
-                                    true
-                                } else false
-                            } else false
-                        },
-                    decorationBox = { innerTextField ->
+                delay(150L)
+                runCatching { bringIntoViewRequester.bringIntoView() }
+            }
+        }
+
+        val combinedKeyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onDone = {
+                finishEditing()
+                keyboardActions.onDone?.invoke(this) ?: focusManager.clearFocus()
+            },
+            onNext = {
+                keyboardActions.onNext?.invoke(this) ?: focusManager.moveFocus(FocusDirection.Down)
+            }
+        )
+
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
+                .border(
+                    width = if (isFocused || isEditing) 2.5.dp else if (isError) 1.5.dp else 1.dp,
+                    color = when {
+                        isFocused || isEditing -> Color.White
+                        isError -> ColorError
+                        else -> Color.White.copy(alpha = 0.12f)
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                )
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isFocused || isEditing) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f))
+                .padding(start = 14.dp, end = if (isPassword || trailingIcon != null) 10.dp else 14.dp),
+            verticalAlignment = if (maxLines > 1) Alignment.Top else Alignment.CenterVertically
+        ) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                readOnly = readOnly,
+                interactionSource = interactionSource,
+                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                singleLine = maxLines == 1,
+                minLines = minLines,
+                maxLines = maxLines,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = combinedKeyboardActions,
+                visualTransformation = if (isPassword && !showPassword) PasswordVisualTransformation() else VisualTransformation.None,
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(AccentBlue),
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 48.dp)
+                    .onFocusChanged { isFocused = it.isFocused || it.hasFocus }
+                    .then(guardModifier),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 48.dp)
+                            .padding(vertical = 12.dp),
+                        contentAlignment = if (maxLines > 1) Alignment.TopStart else Alignment.CenterStart
+                    ) {
                         if (value.isEmpty()) {
                             Text(
                                 placeholder,
@@ -1963,35 +1957,27 @@ fun SlimTextField(
                         }
                         innerTextField()
                     }
-                )
-            } else {
-                val displayText = if (value.isNotEmpty()) {
-                    if (isPassword && !showPassword) "••••••••" else value
-                } else {
-                    placeholder
                 }
-                Text(
-                    text = displayText,
-                    color = if (value.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.4f),
-                    fontSize = 14.sp,
-                    maxLines = maxLines,
-                    overflow = TextOverflow.Ellipsis
-                )
+            )
+            if (isPassword) {
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = onTogglePassword,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else if (trailingIcon != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(modifier = Modifier.padding(top = if (maxLines > 1) 12.dp else 0.dp)) {
+                    trailingIcon()
+                }
             }
-        }
-        if (isPassword) {
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onTogglePassword, modifier = Modifier.size(20.dp)) {
-                Icon(
-                    if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, 
-                    contentDescription = null, 
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        } else if (trailingIcon != null) {
-            Spacer(modifier = Modifier.width(8.dp))
-            trailingIcon()
         }
     }
 }

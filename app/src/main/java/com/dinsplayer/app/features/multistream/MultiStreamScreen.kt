@@ -337,19 +337,10 @@ fun MultiStreamScreen(
     fun openFullscreenChannel(ch: ChannelItem) {
         Media3Manager.init(context.applicationContext)
         MultiStreamManager.releaseAll()
-        val headers = buildMap<String, String> {
-            if (ch.referer.isNotBlank()) put("Referer", ch.referer)
-            if (ch.origin.isNotBlank()) put("Origin", ch.origin)
-        }
         Media3Manager.setActiveChannelId(ch.id)
-        Media3Manager.play(
-            url = ch.url,
+        Media3Manager.playSources(
+            sources = ch.resolvedSources(),
             title = ch.name,
-            userAgent = ch.userAgent,
-            headers = headers,
-            drmScheme = ch.drmScheme?.takeIf { it.isNotBlank() },
-            drmLicenseUri = ch.drmLicenseUri,
-            manifestType = ch.manifestType,
         )
         Media3Manager.launchPlayer(context)
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

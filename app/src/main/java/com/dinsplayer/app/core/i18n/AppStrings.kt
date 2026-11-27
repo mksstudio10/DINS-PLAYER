@@ -156,6 +156,8 @@ data class AppStrings(
     val noChannelFoundShort: String,
     val noAudioTracks: String,
     val noSubtitles: String,
+    val selectServer: String,
+    val allServersFailed: String,
 
     // Settings
     val settingsTitle: String,
@@ -250,5 +252,7 @@ data class AppStrings(
     val fmtEpgSummaryMixed: (Int, Int, Int) -> String,
     val fmtEpgActiveHttp: (Int) -> String,
     val fmtEpgActivePrograms: (Int) -> String,
+    val fmtSwitchingBackupServer: (Int, Int) -> String,
+    val fmtRetryingStream: (Int, Int) -> String,
     val languageNames: Map<AppLanguage, String>,
 )
